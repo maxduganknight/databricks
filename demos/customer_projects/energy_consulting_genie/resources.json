@@ -1,0 +1,32 @@
+{
+  "capabilities": {
+    "buildable": [
+      "synthetic-data-gen",
+      "aibi-dashboards",
+      "genie",
+      "ai-functions",
+      "metric-views"
+    ],
+    "talking_track": [
+      "lakeflow-connect",
+      "unity-catalog",
+      "genie-one",
+      "genie-code",
+      "genie-ontology"
+    ]
+  },
+  "resource_suffix": "015b3e",
+  "created_resources": {
+    "catalog": "solution_builder",
+    "schema": "demo_scenario_shift_alert_015b3e",
+    "warehouse_id": "a94beda3aab06fa4",
+    "volume": "solution_builder.demo_scenario_shift_alert_015b3e.assumptions_docs",
+    "assumptions_pdf_path": "/Volumes/solution_builder/demo_scenario_shift_alert_015b3e/assumptions_docs/raw_data/pdf/scen02_accelerated_transition_assumptions.pdf",
+    "ai_parsed_doc_table": "solution_builder.demo_scenario_shift_alert_015b3e.gold_assumptions_doc",
+    "genie_space_id": "01f1b1192bcf1748a4287e6220eb212c",
+    "dashboard_id": "01f1b119cea316b7accaaf173168e934",
+    "alert_id": "2936359714249134",
+    "alert_source_view": "solution_builder.demo_scenario_shift_alert_015b3e.vw_scenario_alert",
+    "metric_view_name": "solution_builder.demo_scenario_shift_alert_015b3e.mv_scenario_npv"
+  }
+}

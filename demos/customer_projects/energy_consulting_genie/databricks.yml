@@ -1,0 +1,179 @@
+# Scenario Shift Alert. Single-file DAB that re-creates the demo
+# on any workspace: schema + volume + AI/BI dashboard created by `bundle deploy`,
+# then a setup job fills them in:
+#   generate_data -> upload_pdfs -> parse_pdf (ai_parse_document)
+#                 -> deploy_genie -> export_resources (exits an ID manifest).
+# A SECOND, SCHEDULED job (scenario_watch) runs the monitoring beat: on a weekly
+# cadence it asks the Genie space the "which scenario changed the most and why"
+# question via the Conversation API and logs whether a scenario breached the
+# guardrail — replacing the SQL alert with a scheduled Genie task.
+#
+# Workflow-only demo: no App, no Lakebase, no SDP pipeline (the generator does
+# raw->silver->gold inline), no ML/KA/MAS. Deploy is 2 commands — see dab_instructions.md.
+
+bundle:
+  name: scenario_shift
+
+variables:
+  catalog:
+    description: "Unity Catalog for the demo resources"
+    default: "mdk_demo_catalog"
+  schema:
+    description: "Schema within the catalog (created by this bundle)"
+    default: "demo_scenario_shift_alert_015b3e"
+  warehouse_id:
+    description: "SQL Warehouse ID — powers the dashboard and the Genie space"
+  genie_space_id:
+    description: |
+      Genie space the scheduled watch job queries. Only exists AFTER the setup
+      job's deploy_genie task runs, so it can't be known at first deploy. Leave
+      empty on the first `bundle deploy`; grab it from the export_resources JSON
+      (or resources.json) and re-deploy with --var genie_space_id=<id> to arm the
+      watch schedule.
+    default: ""
+  watch_pause_status:
+    description: |
+      Schedule state for the scenario_watch Genie job. Defaults to PAUSED so the
+      watch never fires before genie_space_id is wired. Set to UNPAUSED (with a
+      real genie_space_id) to arm it.
+    default: "PAUSED"
+
+sync:
+  include:
+    - "src/**"
+
+targets:
+  dev:
+    default: true
+    mode: development   # prefixes resource names with [dev <user>] + the schema
+                        # with dev_<user>_ — downstream tasks resolve the schema via
+                        # ${resources.schemas.demo_schema.name} so they hit the prefixed one.
+  prod:
+    mode: production
+
+resources:
+  schemas:
+    demo_schema:
+      name: ${var.schema}
+      catalog_name: ${var.catalog}
+      comment: "Scenario-projection demo data"
+
+  volumes:
+    assumptions_docs:
+      catalog_name: ${var.catalog}
+      schema_name: ${var.schema}
+      name: "assumptions_docs"
+      volume_type: "MANAGED"
+      comment: "Scenario-assumptions memo PDF(s) — parsed by AI Functions for Genie"
+
+  dashboards:
+    scenario_strategy_dashboard:
+      display_name: "[${bundle.target}] Scenario Strategy_015b3e"
+      file_path: ./src/dashboard/dashboard.json
+      warehouse_id: ${var.warehouse_id}
+      dataset_catalog: ${resources.schemas.demo_schema.catalog_name}
+      dataset_schema: ${resources.schemas.demo_schema.name}
+
+  jobs:
+    scenario_shift_setup:
+      name: "[${bundle.target}] Scenario Shift Setup"
+      description: "data -> metric view + upload PDF -> parse (ai_parse_document) -> Genie space -> export IDs"
+      tasks:
+        - task_key: generate_data
+          notebook_task:
+            notebook_path: ./src/data_generation/generate_data.py
+            base_parameters:
+              catalog: ${resources.schemas.demo_schema.catalog_name}
+              schema:  ${resources.schemas.demo_schema.name}
+          environment_key: sdk_default
+
+        # Governed NPV metric view (WITH METRICS LANGUAGE YAML) — the semantic
+        # definition the Genie Ontology's NPV term points at.
+        - task_key: deploy_metric_view
+          depends_on: [{ task_key: generate_data }]
+          notebook_task:
+            notebook_path: ./src/deploy/deploy_metric_view.py
+            base_parameters:
+              catalog: ${resources.schemas.demo_schema.catalog_name}
+              schema:  ${resources.schemas.demo_schema.name}
+          environment_key: sdk_default
+
+        - task_key: upload_pdfs
+          notebook_task:
+            notebook_path: ./src/deploy/upload_pdfs.py
+            base_parameters:
+              catalog: ${resources.schemas.demo_schema.catalog_name}
+              schema:  ${resources.schemas.demo_schema.name}
+          environment_key: sdk_default
+
+        - task_key: parse_pdf
+          depends_on: [{ task_key: upload_pdfs }]
+          notebook_task:
+            notebook_path: ./src/deploy/parse_pdf.py
+            base_parameters:
+              catalog: ${resources.schemas.demo_schema.catalog_name}
+              schema:  ${resources.schemas.demo_schema.name}
+          environment_key: sdk_default
+
+        - task_key: deploy_genie
+          depends_on: [{ task_key: deploy_metric_view }, { task_key: parse_pdf }]
+          notebook_task:
+            notebook_path: ./src/deploy/deploy_genie.py
+            base_parameters:
+              catalog:      ${resources.schemas.demo_schema.catalog_name}
+              schema:       ${resources.schemas.demo_schema.name}
+              warehouse_id: ${var.warehouse_id}
+          environment_key: sdk_latest
+
+        - task_key: export_resources
+          depends_on: [{ task_key: deploy_genie }]
+          notebook_task:
+            notebook_path: ./src/deploy/export_resources.py
+            base_parameters:
+              catalog:        ${resources.schemas.demo_schema.catalog_name}
+              schema:         ${resources.schemas.demo_schema.name}
+              warehouse_id:   ${var.warehouse_id}
+              dashboard_id:   ${resources.dashboards.scenario_strategy_dashboard.id}
+              genie_space_id: "{{tasks.deploy_genie.values.genie_space_id}}"
+          environment_key: sdk_latest
+
+      environments:
+        - environment_key: sdk_default
+          spec:
+            client: "4"
+        - environment_key: sdk_latest
+          spec:
+            client: "4"
+            dependencies:
+              - "databricks-sdk>=0.114.0"
+
+    # ────────────────────────────────────────────────────────────────────────
+    # Scheduled Genie monitoring job — the "scenario shift" watch. On a weekly
+    # cadence it asks the Genie space the monitoring question via the
+    # Conversation API and logs whether a scenario breached the guardrail. This
+    # is the scheduled Genie task that replaces the SQL alert. genie_space_id is
+    # read from resources.json (or passed via --var) — it's resolved by the
+    # setup job's deploy_genie task on the first deploy+run.
+    # ────────────────────────────────────────────────────────────────────────
+    scenario_watch:
+      name: "[${bundle.target}] Scenario Watch (Genie)"
+      description: "Scheduled Genie task: ask 'which scenario changed the most and why', log guardrail breaches"
+      schedule:
+        quartz_cron_expression: "0 0 7 ? * MON"
+        timezone_id: "UTC"
+        pause_status: ${var.watch_pause_status}
+      tasks:
+        - task_key: genie_watch
+          notebook_task:
+            notebook_path: ./src/deploy/genie_scheduled_task.py
+            base_parameters:
+              catalog:        ${resources.schemas.demo_schema.catalog_name}
+              schema:         ${resources.schemas.demo_schema.name}
+              genie_space_id: ${var.genie_space_id}
+          environment_key: sdk_latest
+      environments:
+        - environment_key: sdk_latest
+          spec:
+            client: "4"
+            dependencies:
+              - "databricks-sdk>=0.114.0"

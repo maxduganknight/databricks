@@ -1,0 +1,18 @@
+command:
+  - uvicorn
+  - backend.main:app
+  - --host
+  - 0.0.0.0
+  - --port
+  - "8000"
+
+env:
+  - name: LAKEBASE_HOST
+    description: "Lakebase PostgreSQL host"
+  - name: LAKEBASE_DATABASE
+    value: "demand_forecast_ops"
+
+resources:
+  - name: lakebase-instance
+    sql_warehouse: auto
+    description: "Lakebase connection for operational data"

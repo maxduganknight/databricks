@@ -1,0 +1,10 @@
+  This demo will show a demand forecasting use case in action.
+
+    1. Lakehouse model: a demand forecasting model will be trained on historical transactional data for several product SKUs and will predict the future sold amount of each SKU for 2 time horizons:
+        - this quarter: current time t to t+3 months
+        - next quarter: t+3 months to t+6 months
+        The model will be trained using MLflow on a feature store that considers historical sales velocity and seasonality. It will write to a sales_predictions table which will be refreshed with new predicitons once a week on a schedule.
+
+    2. Lakebase instance: the lakebase instance will contain operational data like current inventory levels, pending orders, reorder threholds and it will also sync with the sales_predictions table (reverse ETL component) to present app users with ML predictions.
+    3. App: Warehouse manager dashboard. Shows "model recommends reorder 500 units of X." alongside live operational data. Manager approves, modifies, or rejects. Approved orders flow to the supplier system.
+    4. ETL: Lakehouse Actual reorder decisions, stockout events, and overstock writedowns sync back. Forecast model improves on cases where manager overrides turned out to be right.

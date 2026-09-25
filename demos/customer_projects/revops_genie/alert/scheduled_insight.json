@@ -1,0 +1,12 @@
+{
+  "parent_asset_name": "users/${USER_ID}",
+  "scheduled_insight": {
+    "insight_type": "ALERT",
+    "display_name": "Mid-Market revenue-retention control — RevOps alert",
+    "prompt": "You are monitoring the company's Mid-Market revenue-retention control for the Office of RevOps against the governed semantic layer in catalog ${CATALOG}, schema ${SCHEMA}. Evaluate two controls for the latest available month. CONTROL 1 — Mid-Market net revenue retention vs the 100% control line: from sem_nrr_retention for the Mid-Market segment, get the latest trailing NRR % (nrr_rolling_pct) and its gap to 100%; also read net-new ARR actual vs plan variance % from sem_forecast_plan (this should reconcile to metric_net_new_arr). CONTROL 2 — at-risk Enterprise renewal exposure: from sem_account_health, sum the at-risk ARR for health-red Enterprise accounts renewing within 90 days. ALERT CONDITION: raise an alert if Mid-Market NRR is more than 5 points below the 100% control line OR at-risk Enterprise ARR exceeds $5,000,000. When alerting, report the current Mid-Market NRR %, the net-new ARR plan variance %, and the at-risk Enterprise exposure in $M and the number of accounts behind it, and recommend that Maya Chen, Director of RevOps, investigate in Genie One — where the drain traces to churn and contraction (competitive displacement and a missing real-time budget-approval feature captured in fact_churn_reason) and stalled Enterprise renewals. Keep it concise and decision-ready.",
+    "schedule": {
+      "quartz_cron_schedule": "0 0 6 ? * MON",
+      "timezone_id": "America/New_York"
+    }
+  }
+}
