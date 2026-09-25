@@ -1,0 +1,2519 @@
+{
+  "datasets": [
+    {
+      "name": "ds_nrr",
+      "displayName": "NRR by segment",
+      "queryLines": [
+        "SELECT segment_name, period, starting_arr_usd, new_arr_usd, expansion_arr_usd, ",
+        "contraction_arr_usd, churned_arr_usd, ending_arr_usd, nrr_pct, nrr_rolling_pct, ",
+        "nrr_rolling_pct/100.0 AS nrr_rolling_frac, ",
+        "(contraction_arr_usd + churned_arr_usd) AS churn_contraction_usd ",
+        "FROM sem_nrr_retention "
+      ]
+    },
+    {
+      "name": "ds_health",
+      "displayName": "Account health",
+      "queryLines": [
+        "SELECT account_id, account_name, region, segment_name, arr_usd, health_score, ",
+        "product_usage_pct, product_usage_pct/100.0 AS usage_frac, support_tickets_90d, ",
+        "days_to_renewal, at_risk_arr_usd, is_at_risk FROM sem_account_health "
+      ]
+    },
+    {
+      "name": "ds_atrisk",
+      "displayName": "Top at-risk accounts",
+      "queryLines": [
+        "SELECT account_name, region, segment_name, health_score, product_usage_pct, ",
+        "days_to_renewal, at_risk_arr_usd, arr_usd FROM sem_account_health ",
+        "WHERE is_at_risk = TRUE OR days_to_renewal <= 90 ORDER BY at_risk_arr_usd DESC LIMIT 10 "
+      ]
+    },
+    {
+      "name": "ds_health_bottom",
+      "displayName": "Bottom-15 health accounts",
+      "queryLines": [
+        "SELECT account_name, region, health_score FROM sem_account_health ",
+        "ORDER BY health_score ASC LIMIT 15 "
+      ]
+    },
+    {
+      "name": "ds_forecast_plan",
+      "displayName": "Forecast vs plan",
+      "queryLines": [
+        "SELECT segment_name, period, actual_nnarr_usd, plan_nnarr_usd, variance_usd, variance_pct, ",
+        "variance_pct/100.0 AS variance_frac, ",
+        "CASE WHEN variance_pct < 0 THEN 'Below plan' ELSE 'Above plan' END AS plan_status ",
+        "FROM sem_forecast_plan "
+      ]
+    },
+    {
+      "name": "ds_nnarr",
+      "displayName": "Mid-Market net-new ARR actual vs forecast",
+      "queryLines": [
+        "SELECT period, net_new_arr_usd AS actual_nnarr, CAST(NULL AS DOUBLE) AS forecast_nnarr ",
+        "FROM metric_net_new_arr WHERE segment_name = 'Mid-Market' ",
+        "UNION ALL SELECT DATE'2026-06-01', NULL, (SELECT net_new_arr_usd FROM metric_net_new_arr WHERE segment_name='Mid-Market' AND period=DATE'2026-06-01') ",
+        "UNION ALL SELECT DATE'2026-07-01', NULL, 1200000.0 ",
+        "UNION ALL SELECT DATE'2026-08-01', NULL, 1140000.0 ",
+        "UNION ALL SELECT DATE'2026-09-01', NULL, 1360000.0 "
+      ]
+    },
+    {
+      "name": "ds_forecast_mm",
+      "displayName": "Mid-Market forecast tiles",
+      "queryLines": [
+        "SELECT * FROM predict_net_new_arr('Mid-Market') "
+      ]
+    },
+    {
+      "name": "ds_arr_proj",
+      "displayName": "8-quarter ending-ARR projection",
+      "queryLines": [
+        "WITH b AS (SELECT ending_arr_usd AS e0 FROM sem_nrr_retention ",
+        "WHERE segment_name='Mid-Market' ORDER BY period DESC LIMIT 1) ",
+        "SELECT q AS quarter, b.e0*pow(1.02,q) AS baseline_arr, b.e0*pow(0.965,q) AS worst_case_arr ",
+        "FROM b, (SELECT explode(sequence(0,8)) AS q) "
+      ]
+    },
+    {
+      "name": "ds_quota",
+      "displayName": "Quota attainment",
+      "queryLines": [
+        "SELECT segment_name, team, period, bookings_usd, quota_usd, attainment_pct, ",
+        "attainment_pct/100.0 AS attainment_frac, pipeline_coverage_x, win_rate_pct, ",
+        "win_rate_pct/100.0 AS win_rate_frac, rep_count FROM sem_quota_attainment "
+      ]
+    },
+    {
+      "name": "ds_gtm",
+      "displayName": "GTM efficiency by channel",
+      "queryLines": [
+        "SELECT channel_name, SUM(sm_spend_usd) AS sm_spend, SUM(new_logos) AS new_logos, ",
+        "SUM(attributed_pipeline_usd) AS attributed_pipeline, ",
+        "SUM(sm_spend_usd)/NULLIF(SUM(new_logos),0) AS cac, ",
+        "SUM(attributed_pipeline_usd)/NULLIF(SUM(sm_spend_usd),0) AS magic_number ",
+        "FROM sem_gtm_spend GROUP BY channel_name "
+      ]
+    },
+    {
+      "name": "ds_gtm_month",
+      "displayName": "S&M spend by month",
+      "queryLines": [
+        "SELECT DATE_TRUNC('MONTH', spend_date) AS month, SUM(amount_usd) AS sm_spend, ",
+        "CASE WHEN DATE_TRUNC('QUARTER', spend_date)=DATE'2026-04-01' THEN 'Q2 2026' ELSE 'Other' END AS is_q2 ",
+        "FROM fact_gtm_spend GROUP BY 1, 3 "
+      ]
+    },
+    {
+      "name": "ds_sync",
+      "displayName": "CRM vs billing unmatched",
+      "queryLines": [
+        "SELECT DATE_TRUNC('MONTH', booking_date) AS month, SUM(mismatch_usd) AS mismatch_usd ",
+        "FROM fact_sync_exception WHERE NOT is_matched ",
+        "AND booking_date >= add_months((SELECT MAX(booking_date) FROM fact_sync_exception), -3) GROUP BY 1 "
+      ]
+    },
+    {
+      "name": "ds_churn",
+      "displayName": "Churn reasons",
+      "queryLines": [
+        "SELECT period, reason_category, competitor_named, account_name, lost_arr_usd ",
+        "FROM fact_churn_reason WHERE reason_category <> 'Renewed' "
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "exec",
+      "displayName": "Executive Summary",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1",
+      "layout": [
+        {
+          "widget": {
+            "name": "p1-title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# RevOps \u2014 Revenue Intelligence Cockpit\n",
+                "\n",
+                "**Where to look:** one NRR line is diving (that's Mid-Market) while new business stays steady. Watch plan variance and renewal exposure below."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "p1-kpi-arr",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_nrr",
+                  "fields": [
+                    {
+                      "name": "sum(ending_arr_usd)",
+                      "expression": "SUM(`ending_arr_usd`)"
+                    },
+                    {
+                      "name": "monthly(period)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `period`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(ending_arr_usd)",
+                  "displayName": "Total Ending ARR",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "monthly(period)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Total Ending ARR"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "p1-kpi-nrr",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_nrr",
+                  "fields": [
+                    {
+                      "name": "avg(nrr_rolling_frac)",
+                      "expression": "AVG(`nrr_rolling_frac`)"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "avg(nrr_rolling_frac)",
+                  "displayName": "Blended NRR %",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Blended NRR %"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 3,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "p1-kpi-nnarr",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_forecast_plan",
+                  "fields": [
+                    {
+                      "name": "sum(actual_nnarr_usd)",
+                      "expression": "SUM(`actual_nnarr_usd`)"
+                    },
+                    {
+                      "name": "monthly(period)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `period`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(actual_nnarr_usd)",
+                  "displayName": "Net-New ARR",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "monthly(period)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Net-New ARR"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 3,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "p1-kpi-risk",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_health",
+                  "fields": [
+                    {
+                      "name": "sum(at_risk_arr_usd)",
+                      "expression": "SUM(`at_risk_arr_usd`)"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(at_risk_arr_usd)",
+                  "displayName": "At-Risk ARR",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "At-Risk ARR"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 3,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "p1-nrr-line",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_nrr",
+                  "fields": [
+                    {
+                      "name": "monthly(period)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `period`)"
+                    },
+                    {
+                      "name": "avg(nrr_rolling_frac)",
+                      "expression": "AVG(`nrr_rolling_frac`)"
+                    },
+                    {
+                      "name": "segment_name",
+                      "expression": "`segment_name`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "monthly(period)",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "fieldName": "avg(nrr_rolling_frac)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "segment_name",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Mid-Market",
+                        "color": "#FE9000"
+                      },
+                      {
+                        "value": "Enterprise",
+                        "color": "#3C6997"
+                      },
+                      {
+                        "value": "SMB",
+                        "color": "#094074"
+                      },
+                      {
+                        "value": "Startup",
+                        "color": "#5ADBFF"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Net revenue retention % by segment \u2014 trailing 12 months"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 12,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "p1-ending-arr",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_nrr",
+                  "fields": [
+                    {
+                      "name": "segment_name",
+                      "expression": "`segment_name`"
+                    },
+                    {
+                      "name": "sum(ending_arr_usd)",
+                      "expression": "SUM(`ending_arr_usd`)"
+                    },
+                    {
+                      "name": "segment_name",
+                      "expression": "`segment_name`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "segment_name",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "x": {
+                  "fieldName": "sum(ending_arr_usd)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "segment_name",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Mid-Market",
+                        "color": "#FE9000"
+                      },
+                      {
+                        "value": "Enterprise",
+                        "color": "#3C6997"
+                      },
+                      {
+                        "value": "SMB",
+                        "color": "#094074"
+                      },
+                      {
+                        "value": "Startup",
+                        "color": "#5ADBFF"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Ending ARR by segment"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 11,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "p1-nnarr-seg",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_forecast_plan",
+                  "fields": [
+                    {
+                      "name": "segment_name",
+                      "expression": "`segment_name`"
+                    },
+                    {
+                      "name": "sum(actual_nnarr_usd)",
+                      "expression": "SUM(`actual_nnarr_usd`)"
+                    },
+                    {
+                      "name": "segment_name",
+                      "expression": "`segment_name`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "segment_name",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "x": {
+                  "fieldName": "sum(actual_nnarr_usd)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "segment_name",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Mid-Market",
+                        "color": "#FE9000"
+                      },
+                      {
+                        "value": "Enterprise",
+                        "color": "#3C6997"
+                      },
+                      {
+                        "value": "SMB",
+                        "color": "#094074"
+                      },
+                      {
+                        "value": "Startup",
+                        "color": "#5ADBFF"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Net-new ARR by segment"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 11,
+            "width": 6,
+            "height": 5
+          }
+        }
+      ]
+    },
+    {
+      "name": "retention",
+      "displayName": "Retention & Attainment",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1",
+      "layout": [
+        {
+          "widget": {
+            "name": "p2-alert",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## \u26a0\ufe0f ALERT: Mid-Market NRR compressed to 90%\n",
+                "\n",
+                "Down 18 points from 108% four months ago. Churn + contraction surged ~6.5\u00d7 while new business stayed flat. Recommend immediate review. *(Scheduled Insight runs weekly against sem_nrr_retention.)*"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "p2-mm-combo",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_nrr",
+                  "fields": [
+                    {
+                      "name": "monthly(period)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `period`)"
+                    },
+                    {
+                      "name": "sum(churn_contraction_usd)",
+                      "expression": "SUM(`churn_contraction_usd`)"
+                    },
+                    {
+                      "name": "avg(nrr_rolling_pct)",
+                      "expression": "AVG(`nrr_rolling_pct`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "combo",
+              "encodings": {
+                "x": {
+                  "fieldName": "monthly(period)",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "primary": {
+                    "fields": [
+                      {
+                        "fieldName": "sum(churn_contraction_usd)",
+                        "displayName": "Churn + contraction ($)"
+                      }
+                    ]
+                  },
+                  "secondary": {
+                    "fields": [
+                      {
+                        "fieldName": "avg(nrr_rolling_pct)",
+                        "displayName": "NRR rolling %"
+                      }
+                    ]
+                  }
+                },
+                "label": {
+                  "show": false
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Mid-Market NRR & churn \u2014 12 months"
+              },
+              "annotations": [
+                {
+                  "type": "vertical-line",
+                  "encodings": {
+                    "x": {
+                      "dataValue": "2026-02-01T00:00:00.000",
+                      "dataType": "DATETIME"
+                    },
+                    "label": {
+                      "value": "Competitive losses begin"
+                    },
+                    "color": {
+                      "value": {
+                        "hex": "#FFDD4A"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 8,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "p2-variance",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_forecast_plan",
+                  "fields": [
+                    {
+                      "name": "segment_name",
+                      "expression": "`segment_name`"
+                    },
+                    {
+                      "name": "avg(variance_frac)",
+                      "expression": "AVG(`variance_frac`)"
+                    },
+                    {
+                      "name": "plan_status",
+                      "expression": "`plan_status`"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "filters": [
+                    {
+                      "expression": "year(`period`) = 2026"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "segment_name",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "x": {
+                  "fieldName": "avg(variance_frac)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "plan_status",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Below plan",
+                        "color": "#FE9000"
+                      },
+                      {
+                        "value": "Above plan",
+                        "color": "#3C6997"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Actual vs plan net-new ARR variance % by segment \u2014 2026 YTD"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 2,
+            "width": 4,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "p2-sync",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_sync",
+                  "fields": [
+                    {
+                      "name": "monthly(month)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `month`)"
+                    },
+                    {
+                      "name": "sum(mismatch_usd)",
+                      "expression": "SUM(`mismatch_usd`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "monthly(month)",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(mismatch_usd)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "CRM\u2194billing unmatched bookings (last 90 days)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 8,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "p2-attain",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_quota",
+                  "fields": [
+                    {
+                      "name": "segment_name",
+                      "expression": "`segment_name`"
+                    },
+                    {
+                      "name": "team",
+                      "expression": "`team`"
+                    },
+                    {
+                      "name": "attainment_pct",
+                      "expression": "`attainment_pct`"
+                    },
+                    {
+                      "name": "pipeline_coverage_x",
+                      "expression": "`pipeline_coverage_x`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "segment_name",
+                    "displayName": "Segment"
+                  },
+                  {
+                    "fieldName": "team",
+                    "displayName": "Team"
+                  },
+                  {
+                    "fieldName": "attainment_pct",
+                    "displayName": "Attainment %",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 1
+                      }
+                    },
+                    "style": {
+                      "type": "basic",
+                      "rules": [
+                        {
+                          "condition": {
+                            "operand": {
+                              "type": "data-value",
+                              "value": "90"
+                            },
+                            "operator": "<"
+                          },
+                          "backgroundColor": {
+                            "hex": "#FE9000"
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "fieldName": "pipeline_coverage_x",
+                    "displayName": "Pipeline coverage (x)",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Attainment detail by segment/team"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 8,
+            "width": 6,
+            "height": 5
+          }
+        }
+      ]
+    },
+    {
+      "name": "nnarr",
+      "displayName": "Net-New ARR & Scenario",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1",
+      "layout": [
+        {
+          "widget": {
+            "name": "p3-title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Net-New ARR & Scenario Modeling\n",
+                "\n",
+                "Stress-test the outlook. Forecast tiles come from `predict_net_new_arr('Mid-Market')`; the projection line compares a baseline vs worst-case ending-ARR path over 8 quarters."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "p3-m1",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_forecast_mm",
+                  "fields": [
+                    {
+                      "name": "m1",
+                      "expression": "`m1`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "m1",
+                  "displayName": "Forecast M1",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Forecast M1"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "p3-m2",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_forecast_mm",
+                  "fields": [
+                    {
+                      "name": "m2",
+                      "expression": "`m2`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "m2",
+                  "displayName": "Forecast M2",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Forecast M2"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "p3-m3",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_forecast_mm",
+                  "fields": [
+                    {
+                      "name": "m3",
+                      "expression": "`m3`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "m3",
+                  "displayName": "Forecast M3",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Forecast M3"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "p3-qt",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_forecast_mm",
+                  "fields": [
+                    {
+                      "name": "quarter_total",
+                      "expression": "`quarter_total`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "quarter_total",
+                  "displayName": "Quarter Total",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Quarter Total"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "p3-nnarr",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_nnarr",
+                  "fields": [
+                    {
+                      "name": "period",
+                      "expression": "`period`"
+                    },
+                    {
+                      "name": "actual_nnarr",
+                      "expression": "`actual_nnarr`"
+                    },
+                    {
+                      "name": "forecast_nnarr",
+                      "expression": "`forecast_nnarr`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "period",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  },
+                  "fields": [
+                    {
+                      "fieldName": "actual_nnarr",
+                      "displayName": "Actual"
+                    },
+                    {
+                      "fieldName": "forecast_nnarr",
+                      "displayName": "Forecast"
+                    }
+                  ]
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Mid-Market net-new ARR \u2014 actual vs forecast"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 12,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "p3-proj",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_arr_proj",
+                  "fields": [
+                    {
+                      "name": "quarter",
+                      "expression": "`quarter`"
+                    },
+                    {
+                      "name": "baseline_arr",
+                      "expression": "`baseline_arr`"
+                    },
+                    {
+                      "name": "worst_case_arr",
+                      "expression": "`worst_case_arr`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "quarter",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "y": {
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  },
+                  "fields": [
+                    {
+                      "fieldName": "baseline_arr",
+                      "displayName": "Baseline +2%/qtr"
+                    },
+                    {
+                      "fieldName": "worst_case_arr",
+                      "displayName": "Worst case -3.5%/qtr"
+                    }
+                  ]
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Mid-Market ending-ARR projection \u2014 baseline vs worst-case (8 quarters)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 11,
+            "width": 12,
+            "height": 6
+          }
+        }
+      ]
+    },
+    {
+      "name": "risk",
+      "displayName": "Renewal Risk",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1",
+      "layout": [
+        {
+          "widget": {
+            "name": "p4-title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Renewal Risk \u2014 At-Risk Accounts\n",
+                "\n",
+                "Three strategic Enterprise accounts hold $11.6M ARR with $5.4M at risk \u2014 low health, low usage."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "p4-atrisk",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_atrisk",
+                  "fields": [
+                    {
+                      "name": "account_name",
+                      "expression": "`account_name`"
+                    },
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    },
+                    {
+                      "name": "segment_name",
+                      "expression": "`segment_name`"
+                    },
+                    {
+                      "name": "health_score",
+                      "expression": "`health_score`"
+                    },
+                    {
+                      "name": "product_usage_pct",
+                      "expression": "`product_usage_pct`"
+                    },
+                    {
+                      "name": "days_to_renewal",
+                      "expression": "`days_to_renewal`"
+                    },
+                    {
+                      "name": "at_risk_arr_usd",
+                      "expression": "`at_risk_arr_usd`"
+                    },
+                    {
+                      "name": "arr_usd",
+                      "expression": "`arr_usd`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "account_name",
+                    "displayName": "Account"
+                  },
+                  {
+                    "fieldName": "region",
+                    "displayName": "Region"
+                  },
+                  {
+                    "fieldName": "segment_name",
+                    "displayName": "Segment"
+                  },
+                  {
+                    "fieldName": "health_score",
+                    "displayName": "Health",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "product_usage_pct",
+                    "displayName": "Usage %",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "days_to_renewal",
+                    "displayName": "Days to renewal",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "at_risk_arr_usd",
+                    "displayName": "At-risk ARR",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    },
+                    "style": {
+                      "type": "basic",
+                      "rules": [
+                        {
+                          "condition": {
+                            "operand": {
+                              "type": "data-value",
+                              "value": "0"
+                            },
+                            "operator": ">"
+                          },
+                          "backgroundColor": {
+                            "hex": "#FE9000"
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "fieldName": "arr_usd",
+                    "displayName": "ARR",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "At-risk accounts \u2014 renewals in the next 90 days"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 12,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "p4-health",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_health_bottom",
+                  "fields": [
+                    {
+                      "name": "account_name",
+                      "expression": "`account_name`"
+                    },
+                    {
+                      "name": "min(health_score)",
+                      "expression": "MIN(`health_score`)"
+                    },
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "account_name",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "x": {
+                  "fieldName": "min(health_score)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "format": {
+                    "type": "number",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 0
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "region",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "APAC",
+                        "color": "#FE9000"
+                      },
+                      {
+                        "value": "EMEA",
+                        "color": "#FFDD4A"
+                      },
+                      {
+                        "value": "NA",
+                        "color": "#3C6997"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Health score by account (bottom 15)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 8,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "p4-region",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_health",
+                  "fields": [
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    },
+                    {
+                      "name": "sum(at_risk_arr_usd)",
+                      "expression": "SUM(`at_risk_arr_usd`)"
+                    },
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "region",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "x": {
+                  "fieldName": "sum(at_risk_arr_usd)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "region",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "APAC",
+                        "color": "#FE9000"
+                      },
+                      {
+                        "value": "EMEA",
+                        "color": "#FFDD4A"
+                      },
+                      {
+                        "value": "NA",
+                        "color": "#3C6997"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "At-risk ARR by region"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 8,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "p4-atrisk-seg",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_health",
+                  "fields": [
+                    {
+                      "name": "segment_name",
+                      "expression": "`segment_name`"
+                    },
+                    {
+                      "name": "sum(at_risk_arr_usd)",
+                      "expression": "SUM(`at_risk_arr_usd`)"
+                    },
+                    {
+                      "name": "segment_name",
+                      "expression": "`segment_name`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "segment_name",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "x": {
+                  "fieldName": "sum(at_risk_arr_usd)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "segment_name",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Mid-Market",
+                        "color": "#FE9000"
+                      },
+                      {
+                        "value": "Enterprise",
+                        "color": "#3C6997"
+                      },
+                      {
+                        "value": "SMB",
+                        "color": "#094074"
+                      },
+                      {
+                        "value": "Startup",
+                        "color": "#5ADBFF"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "At-risk ARR by segment"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 14,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "p4-scatter",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_health",
+                  "fields": [
+                    {
+                      "name": "health_score",
+                      "expression": "`health_score`"
+                    },
+                    {
+                      "name": "arr_usd",
+                      "expression": "`arr_usd`"
+                    },
+                    {
+                      "name": "at_risk_arr_usd",
+                      "expression": "`at_risk_arr_usd`"
+                    },
+                    {
+                      "name": "segment_name",
+                      "expression": "`segment_name`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "scatter",
+              "encodings": {
+                "x": {
+                  "fieldName": "health_score",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "y": {
+                  "fieldName": "arr_usd",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                },
+                "size": {
+                  "fieldName": "at_risk_arr_usd",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "segment_name",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Mid-Market",
+                        "color": "#FE9000"
+                      },
+                      {
+                        "value": "Enterprise",
+                        "color": "#3C6997"
+                      },
+                      {
+                        "value": "SMB",
+                        "color": "#094074"
+                      },
+                      {
+                        "value": "Startup",
+                        "color": "#5ADBFF"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Health vs ARR (bubble = at-risk ARR)"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 14,
+            "width": 6,
+            "height": 5
+          }
+        }
+      ]
+    },
+    {
+      "name": "gtm",
+      "displayName": "GTM Efficiency",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1",
+      "layout": [
+        {
+          "widget": {
+            "name": "p5-title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# GTM Efficiency & Quota\n",
+                "\n",
+                "Q2 S&M ran ~+12% over the prior run-rate. CAC, magic number, and attainment by channel & segment."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "p5-spend",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_gtm_month",
+                  "fields": [
+                    {
+                      "name": "monthly(month)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `month`)"
+                    },
+                    {
+                      "name": "sum(sm_spend)",
+                      "expression": "SUM(`sm_spend`)"
+                    },
+                    {
+                      "name": "is_q2",
+                      "expression": "`is_q2`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "monthly(month)",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(sm_spend)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "is_q2",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Q2 2026",
+                        "color": "#FE9000"
+                      },
+                      {
+                        "value": "Other",
+                        "color": "#3C6997"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "S&M spend by month (Q2 spike)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 12,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "p5-cac",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_gtm",
+                  "fields": [
+                    {
+                      "name": "channel_name",
+                      "expression": "`channel_name`"
+                    },
+                    {
+                      "name": "avg(cac)",
+                      "expression": "AVG(`cac`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "channel_name",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "x": {
+                  "fieldName": "avg(cac)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "CAC by channel"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 7,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "p5-pipe",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_gtm",
+                  "fields": [
+                    {
+                      "name": "sum(attributed_pipeline)",
+                      "expression": "SUM(`attributed_pipeline`)"
+                    },
+                    {
+                      "name": "channel_name",
+                      "expression": "`channel_name`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "pie",
+              "encodings": {
+                "angle": {
+                  "fieldName": "sum(attributed_pipeline)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "channel_name",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Attributed pipeline % by channel"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 7,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "p5-attain",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_quota",
+                  "fields": [
+                    {
+                      "name": "team",
+                      "expression": "`team`"
+                    },
+                    {
+                      "name": "avg(attainment_frac)",
+                      "expression": "AVG(`attainment_frac`)"
+                    },
+                    {
+                      "name": "segment_name",
+                      "expression": "`segment_name`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "team",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "x": {
+                  "fieldName": "avg(attainment_frac)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "segment_name",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Mid-Market",
+                        "color": "#FE9000"
+                      },
+                      {
+                        "value": "Enterprise",
+                        "color": "#3C6997"
+                      },
+                      {
+                        "value": "SMB",
+                        "color": "#094074"
+                      },
+                      {
+                        "value": "Startup",
+                        "color": "#5ADBFF"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Attainment by segment/team"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "p5-magic",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_gtm",
+                  "fields": [
+                    {
+                      "name": "channel_name",
+                      "expression": "`channel_name`"
+                    },
+                    {
+                      "name": "avg(magic_number)",
+                      "expression": "AVG(`magic_number`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "channel_name",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "x": {
+                  "fieldName": "avg(magic_number)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "format": {
+                    "type": "number",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Magic number by channel"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 12,
+            "width": 6,
+            "height": 5
+          }
+        }
+      ]
+    },
+    {
+      "name": "filters",
+      "displayName": "Filters",
+      "pageType": "PAGE_TYPE_GLOBAL_FILTERS",
+      "layoutVersion": "GRID_V1",
+      "layout": [
+        {
+          "widget": {
+            "name": "f-date",
+            "queries": [
+              {
+                "name": "q_0",
+                "query": {
+                  "datasetName": "ds_nrr",
+                  "fields": [
+                    {
+                      "name": "period",
+                      "expression": "`period`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_1",
+                "query": {
+                  "datasetName": "ds_forecast_plan",
+                  "fields": [
+                    {
+                      "name": "period",
+                      "expression": "`period`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_2",
+                "query": {
+                  "datasetName": "ds_quota",
+                  "fields": [
+                    {
+                      "name": "period",
+                      "expression": "`period`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-date-range-picker",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "period",
+                    "queryName": "q_0"
+                  },
+                  {
+                    "fieldName": "period",
+                    "queryName": "q_1"
+                  },
+                  {
+                    "fieldName": "period",
+                    "queryName": "q_2"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Date Range"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 4,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "f-segment",
+            "queries": [
+              {
+                "name": "q_0",
+                "query": {
+                  "datasetName": "ds_nrr",
+                  "fields": [
+                    {
+                      "name": "segment_name",
+                      "expression": "`segment_name`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_1",
+                "query": {
+                  "datasetName": "ds_health",
+                  "fields": [
+                    {
+                      "name": "segment_name",
+                      "expression": "`segment_name`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_2",
+                "query": {
+                  "datasetName": "ds_forecast_plan",
+                  "fields": [
+                    {
+                      "name": "segment_name",
+                      "expression": "`segment_name`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_3",
+                "query": {
+                  "datasetName": "ds_quota",
+                  "fields": [
+                    {
+                      "name": "segment_name",
+                      "expression": "`segment_name`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "segment_name",
+                    "queryName": "q_0"
+                  },
+                  {
+                    "fieldName": "segment_name",
+                    "queryName": "q_1"
+                  },
+                  {
+                    "fieldName": "segment_name",
+                    "queryName": "q_2"
+                  },
+                  {
+                    "fieldName": "segment_name",
+                    "queryName": "q_3"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Segment"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 0,
+            "width": 4,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "f-region",
+            "queries": [
+              {
+                "name": "q_0",
+                "query": {
+                  "datasetName": "ds_health",
+                  "fields": [
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "region",
+                    "queryName": "q_0"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Region"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 0,
+            "width": 4,
+            "height": 2
+          }
+        }
+      ]
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "canvasBackgroundColor": {
+        "light": "#F5F7FB",
+        "dark": "#0F1419"
+      },
+      "widgetBackgroundColor": {
+        "light": "#FFFFFF",
+        "dark": "#161B22"
+      },
+      "widgetBorderColor": {
+        "light": "#FFFFFF",
+        "dark": "#161B22"
+      },
+      "fontColor": {
+        "light": "#1F2530",
+        "dark": "#E8ECF0"
+      },
+      "selectionColor": {
+        "light": "#4F7CE3",
+        "dark": "#8ACAFF"
+      },
+      "visualizationColors": [
+        "#094074",
+        "#3C6997",
+        "#5ADBFF",
+        "#FFDD4A",
+        "#FE9000"
+      ],
+      "widgetHeaderAlignment": "LEFT"
+    },
+    "genieSpace": {
+      "isEnabled": true,
+      "overrideId": "01f1ad62f147167eba19adef16388070",
+      "enablementMode": "ENABLED"
+    }
+  }
+}

@@ -1,0 +1,263 @@
+{
+  "datasets": [
+    {
+      "name": "ds_overview_kpi",
+      "displayName": "Scenario landscape KPIs",
+      "queryLines": [
+        "SELECT COUNT(*) AS n_scenarios, ",
+        "  SUM(CASE WHEN risk_band = 'Attractive' THEN 1 ELSE 0 END) AS n_attractive, ",
+        "  SUM(CASE WHEN risk_band = 'Marginal' THEN 1 ELSE 0 END) AS n_marginal, ",
+        "  ROUND(MAX(npv_busd) - MIN(npv_busd), 1) AS npv_spread ",
+        "FROM gold_scenario_npv_trend ",
+        "WHERE vintage_date = (SELECT MAX(vintage_date) FROM gold_scenario_npv_trend)"
+      ]
+    },
+    {
+      "name": "ds_landscape",
+      "displayName": "Scenario landscape (latest vintage + assumptions)",
+      "queryLines": [
+        "SELECT t.scenario_name, ROUND(t.npv_busd, 2) AS npv_busd, t.risk_band, t.strategy_theme, ",
+        "  a.carbon_price_floor_usd_t AS carbon_price_floor, a.policy_effective_year, ",
+        "  a.gas_demand_growth_pct AS gas_demand_growth, a.oil_price_usd_bbl AS oil_price, a.discount_rate_pct AS discount_rate ",
+        "FROM gold_scenario_npv_trend t ",
+        "JOIN silver_assumptions a ON t.scenario_id = a.scenario_id AND a.is_current_vintage = TRUE ",
+        "WHERE t.vintage_date = (SELECT MAX(vintage_date) FROM gold_scenario_npv_trend) ",
+        "ORDER BY t.npv_busd DESC"
+      ]
+    },
+    {
+      "name": "ds_horizon",
+      "displayName": "Cumulative NPV outlook 2025-2045 (all scenarios, current vintage)",
+      "queryLines": [
+        "SELECT scenario_name, horizon_year, ROUND(cumulative_npv_busd, 2) AS cumulative_npv_busd, ROUND(production_mmboe, 1) AS production_mmboe ",
+        "FROM gold_projection_detail ",
+        "WHERE vintage_label = 'Current' ",
+        "ORDER BY scenario_name, horizon_year"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "landscape",
+      "displayName": "Scenario Landscape",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1",
+      "layout": [
+        {
+          "widget": {
+            "name": "title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Scenario Landscape\n",
+                "\n",
+                "An overview of the strategic scenarios modeled for clients weighing 10–20 year energy profitability. Each scenario carries a projected NPV, a risk band (**Attractive** ≥ $3.5B · **Marginal** $2.5–3.5B · **Unattractive** < $2.5B), a strategy theme, and its underlying assumptions (carbon-price floor, policy timing, gas demand growth).\n",
+                "\n",
+                "**What to see** — how many scenarios sit in each risk band and the spread between the best and worst outlook · the cumulative-NPV outlook to 2045 for every scenario · each scenario ranked by NPV and colored by band · the full assumption set behind each scenario.\n",
+                "\n",
+                "Use the **Scenario** and **Risk band** filters to focus, or ask **Genie** to go deeper on any scenario or the assumptions behind it."
+              ]
+            }
+          },
+          "position": {"x": 0, "y": 0, "width": 12, "height": 4}
+        },
+        {
+          "widget": {
+            "name": "kpi_n_scenarios",
+            "queries": [{"name": "main_query", "query": {"datasetName": "ds_overview_kpi",
+              "fields": [{"name": "n_scenarios", "expression": "`n_scenarios`"}], "disaggregated": true}}],
+            "spec": {"version": 2, "widgetType": "counter",
+              "encodings": {"value": {"fieldName": "n_scenarios", "displayName": "Scenarios modeled"}},
+              "frame": {"showTitle": true, "title": "Scenarios modeled"}}
+          },
+          "position": {"x": 0, "y": 4, "width": 3, "height": 3}
+        },
+        {
+          "widget": {
+            "name": "kpi_attractive",
+            "queries": [{"name": "main_query", "query": {"datasetName": "ds_overview_kpi",
+              "fields": [{"name": "n_attractive", "expression": "`n_attractive`"}], "disaggregated": true}}],
+            "spec": {"version": 2, "widgetType": "counter",
+              "encodings": {"value": {"fieldName": "n_attractive", "displayName": "Attractive"}},
+              "frame": {"showTitle": true, "title": "In Attractive band"}}
+          },
+          "position": {"x": 3, "y": 4, "width": 3, "height": 3}
+        },
+        {
+          "widget": {
+            "name": "kpi_marginal",
+            "queries": [{"name": "main_query", "query": {"datasetName": "ds_overview_kpi",
+              "fields": [{"name": "n_marginal", "expression": "`n_marginal`"}], "disaggregated": true}}],
+            "spec": {"version": 2, "widgetType": "counter",
+              "encodings": {"value": {"fieldName": "n_marginal", "displayName": "Marginal"}},
+              "frame": {"showTitle": true, "title": "In Marginal band"}}
+          },
+          "position": {"x": 6, "y": 4, "width": 3, "height": 3}
+        },
+        {
+          "widget": {
+            "name": "kpi_npv_spread",
+            "queries": [{"name": "main_query", "query": {"datasetName": "ds_overview_kpi",
+              "fields": [{"name": "npv_spread", "expression": "`npv_spread`"}], "disaggregated": true}}],
+            "spec": {"version": 2, "widgetType": "counter",
+              "encodings": {"value": {"fieldName": "npv_spread", "displayName": "NPV spread ($B)",
+                "format": {"type": "number", "decimalPlaces": {"type": "max", "places": 1}}}},
+              "frame": {"showTitle": true, "title": "NPV spread, best vs worst ($B)"}}
+          },
+          "position": {"x": 9, "y": 4, "width": 3, "height": 3}
+        },
+        {
+          "widget": {
+            "name": "horizon_chart",
+            "queries": [{"name": "main_query", "query": {"datasetName": "ds_horizon",
+              "fields": [
+                {"name": "horizon_year", "expression": "`horizon_year`"},
+                {"name": "sum(cumulative_npv_busd)", "expression": "SUM(`cumulative_npv_busd`)"},
+                {"name": "scenario_name", "expression": "`scenario_name`"}
+              ], "disaggregated": false}}],
+            "spec": {"version": 3, "widgetType": "line",
+              "encodings": {
+                "x": {"fieldName": "horizon_year", "scale": {"type": "quantitative"}, "displayName": "Horizon year"},
+                "y": {"fieldName": "sum(cumulative_npv_busd)", "scale": {"type": "quantitative"}, "displayName": "Cumulative NPV ($B)"},
+                "color": {"fieldName": "scenario_name", "scale": {"type": "categorical",
+                  "mappings": [
+                    {"value": "High Demand", "color": "#0B5D3B"},
+                    {"value": "Base Case", "color": "#2E8B57"},
+                    {"value": "Delayed Transition", "color": "#66B2A0"},
+                    {"value": "Carbon Constrained", "color": "#F4B740"},
+                    {"value": "Accelerated Transition", "color": "#C0392B"}
+                  ]}, "displayName": "Scenario"}
+              },
+              "frame": {"showTitle": true, "title": "Cumulative NPV outlook to 2045, by scenario",
+                "description": "The strategic landscape: how each scenario's value builds out over the 20-year horizon."}}
+          },
+          "position": {"x": 0, "y": 7, "width": 12, "height": 6}
+        },
+        {
+          "widget": {
+            "name": "npv_by_scenario_bar",
+            "queries": [{"name": "main_query", "query": {"datasetName": "ds_landscape",
+              "fields": [
+                {"name": "scenario_name", "expression": "`scenario_name`"},
+                {"name": "sum(npv_busd)", "expression": "SUM(`npv_busd`)"},
+                {"name": "risk_band", "expression": "`risk_band`"}
+              ], "disaggregated": false}}],
+            "spec": {"version": 3, "widgetType": "bar",
+              "encodings": {
+                "x": {"fieldName": "sum(npv_busd)", "scale": {"type": "quantitative"}, "displayName": "NPV ($B)"},
+                "y": {"fieldName": "scenario_name", "scale": {"type": "categorical", "sort": {"by": "value"}}, "displayName": "Scenario"},
+                "color": {"fieldName": "risk_band", "scale": {"type": "categorical",
+                  "mappings": [
+                    {"value": "Attractive", "color": "#0B5D3B"},
+                    {"value": "Marginal", "color": "#F4B740"},
+                    {"value": "Unattractive", "color": "#C0392B"}
+                  ]}, "displayName": "Risk band"}
+              },
+              "frame": {"showTitle": true, "title": "Projected NPV by scenario (current vintage)",
+                "description": "Ranked best to worst, colored by risk band."}}
+          },
+          "position": {"x": 0, "y": 13, "width": 6, "height": 6}
+        },
+        {
+          "widget": {
+            "name": "production_chart",
+            "queries": [{"name": "main_query", "query": {"datasetName": "ds_horizon",
+              "fields": [
+                {"name": "horizon_year", "expression": "`horizon_year`"},
+                {"name": "sum(production_mmboe)", "expression": "SUM(`production_mmboe`)"},
+                {"name": "scenario_name", "expression": "`scenario_name`"}
+              ], "disaggregated": false}}],
+            "spec": {"version": 3, "widgetType": "line",
+              "encodings": {
+                "x": {"fieldName": "horizon_year", "scale": {"type": "quantitative"}, "displayName": "Horizon year"},
+                "y": {"fieldName": "sum(production_mmboe)", "scale": {"type": "quantitative"}, "displayName": "Production (mmboe)"},
+                "color": {"fieldName": "scenario_name", "scale": {"type": "categorical",
+                  "mappings": [
+                    {"value": "High Demand", "color": "#0B5D3B"},
+                    {"value": "Base Case", "color": "#2E8B57"},
+                    {"value": "Delayed Transition", "color": "#66B2A0"},
+                    {"value": "Carbon Constrained", "color": "#F4B740"},
+                    {"value": "Accelerated Transition", "color": "#C0392B"}
+                  ]}, "displayName": "Scenario"}
+              },
+              "frame": {"showTitle": true, "title": "Production outlook to 2045, by scenario",
+                "description": "The volume view behind the value — production decline path per scenario."}}
+          },
+          "position": {"x": 6, "y": 13, "width": 6, "height": 6}
+        },
+        {
+          "widget": {
+            "name": "landscape_table",
+            "queries": [{"name": "main_query", "query": {"datasetName": "ds_landscape",
+              "fields": [
+                {"name": "scenario_name", "expression": "`scenario_name`"},
+                {"name": "npv_busd", "expression": "`npv_busd`"},
+                {"name": "risk_band", "expression": "`risk_band`"},
+                {"name": "strategy_theme", "expression": "`strategy_theme`"},
+                {"name": "carbon_price_floor", "expression": "`carbon_price_floor`"},
+                {"name": "policy_effective_year", "expression": "`policy_effective_year`"},
+                {"name": "gas_demand_growth", "expression": "`gas_demand_growth`"}
+              ], "disaggregated": true}}],
+            "spec": {"version": 2, "widgetType": "table",
+              "encodings": {"columns": [
+                {"fieldName": "scenario_name", "displayName": "Scenario"},
+                {"fieldName": "npv_busd", "displayName": "NPV ($B)"},
+                {"fieldName": "risk_band", "displayName": "Risk band"},
+                {"fieldName": "strategy_theme", "displayName": "Strategy theme"},
+                {"fieldName": "carbon_price_floor", "displayName": "Carbon floor ($/t)"},
+                {"fieldName": "policy_effective_year", "displayName": "Policy year"},
+                {"fieldName": "gas_demand_growth", "displayName": "Gas demand %/yr"}
+              ]},
+              "frame": {"showTitle": true, "title": "Scenario landscape — NPV, risk band, theme & key assumptions",
+                "description": "The full picture per scenario: value, band, and the assumptions that drive it."}}
+          },
+          "position": {"x": 0, "y": 19, "width": 12, "height": 6}
+        }
+      ]
+    },
+    {
+      "name": "filters",
+      "displayName": "Filters",
+      "pageType": "PAGE_TYPE_GLOBAL_FILTERS",
+      "layoutVersion": "GRID_V1",
+      "layout": [
+        {
+          "widget": {
+            "name": "filter_scenario",
+            "queries": [{"name": "ds_landscape_scenario", "query": {"datasetName": "ds_landscape",
+              "fields": [{"name": "scenario_name", "expression": "`scenario_name`"}], "disaggregated": false}}],
+            "spec": {"version": 2, "widgetType": "filter-multi-select",
+              "encodings": {"fields": [{"fieldName": "scenario_name", "displayName": "Scenario", "queryName": "ds_landscape_scenario"}]},
+              "frame": {"showTitle": true, "title": "Scenario"}}
+          },
+          "position": {"x": 0, "y": 0, "width": 3, "height": 2}
+        },
+        {
+          "widget": {
+            "name": "filter_risk_band",
+            "queries": [{"name": "ds_landscape_band", "query": {"datasetName": "ds_landscape",
+              "fields": [{"name": "risk_band", "expression": "`risk_band`"}], "disaggregated": false}}],
+            "spec": {"version": 2, "widgetType": "filter-multi-select",
+              "encodings": {"fields": [{"fieldName": "risk_band", "displayName": "Risk band", "queryName": "ds_landscape_band"}]},
+              "frame": {"showTitle": true, "title": "Risk band"}}
+          },
+          "position": {"x": 3, "y": 0, "width": 3, "height": 2}
+        }
+      ]
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "canvasBackgroundColor": {"light": "#F5F7FB", "dark": "#0F1419"},
+      "widgetBackgroundColor": {"light": "#FFFFFF", "dark": "#161B22"},
+      "fontColor": {"light": "#1F2530", "dark": "#E8ECF0"},
+      "selectionColor": {"light": "#0B5D3B", "dark": "#7FD1AE"},
+      "visualizationColors": ["#0B5D3B", "#2E8B57", "#66B2A0", "#F4B740", "#C0392B"],
+      "widgetHeaderAlignment": "LEFT"
+    },
+    "genieSpace": {
+      "isEnabled": true,
+      "overrideId": "01f1b1192bcf1748a4287e6220eb212c",
+      "enablementMode": "ENABLED"
+    }
+  }
+}

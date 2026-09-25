@@ -1,0 +1,43 @@
+{
+  "capabilities": {
+    "buildable": [
+      "synthetic-data-gen",
+      "metric-views",
+      "information-extraction",
+      "aibi-dashboards",
+      "genie",
+      "genie-one",
+      "genie-code"
+    ],
+    "talking_track": [
+      "lakeflow-connect",
+      "unity-catalog"
+    ]
+  },
+  "created_resources": {
+    "catalog": "solution_builder",
+    "schema": "demo_revops_intelligence",
+    "warehouse_id": "a94beda3aab06fa4",
+    "tables": [
+      "dim_segment", "dim_calendar", "dim_account", "dim_product", "dim_channel", "dim_stage", "dim_rep",
+      "fact_arr_movement", "fact_subscription", "fact_opportunity", "fact_gtm_spend",
+      "fact_rep_attainment", "fact_sync_exception", "fact_plan", "feat_monthly_nnarr",
+      "fact_churn_reason"
+    ],
+    "views": [
+      "sem_nrr_retention", "sem_account_health", "metric_net_new_arr",
+      "sem_forecast_plan", "sem_gtm_spend", "sem_quota_attainment"
+    ],
+    "functions": ["predict_net_new_arr"],
+    "genie_spaces": {
+      "Net Revenue Retention": "01f1ad62f147167eba19adef16388070",
+      "Net-New ARR & Renewal Risk": "01f1ad62f1751905a8baffe8a0ee09e5",
+      "Forecast Accuracy & Plan Attainment": "01f1ad62f19f167a915e111f2c4a0dc8",
+      "Churn & Renewal Intelligence": "01f1ad62f1c81196833843b706344a96",
+      "GTM Efficiency & Quota": "01f1ad62f1f2176580c345553a39542c"
+    },
+    "dashboard_id": "01f1ad63f58a18c58248218f6dd12c6c",
+    "scheduled_insight": "bc70e6d0d73b46f08638901ac51e5c19",
+    "genie_code_skill": "/Workspace/Users/2301685f-87d8-4a01-9f27-b105951ab400/.assistant/skills/revenue-retention-briefing"
+  }
+}

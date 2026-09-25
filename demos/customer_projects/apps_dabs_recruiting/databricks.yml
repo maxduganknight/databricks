@@ -1,0 +1,21 @@
+bundle:
+  name: recruiter-chatbot
+
+include:
+  - resources/*.yml
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://fevm-demand-forecast-demo.cloud.databricks.com
+
+  prod:
+    mode: production
+    workspace:
+      host: https://fevm-demand-forecast-demo.cloud.databricks.com
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    permissions:
+      - user_name: ${workspace.current_user.userName}
+        level: CAN_MANAGE

@@ -1,0 +1,15 @@
+resources:
+  apps:
+    recruiter-chatbot:
+      name: "recruiter-chatbot"
+      description: "AI-powered recruiter assistant for candidate-job matching"
+      source_code_path: ../src/app
+      config:
+        command:
+          - streamlit
+          - run
+          - app.py
+          - --server.port
+          - "8000"
+          - --server.address
+          - "0.0.0.0"

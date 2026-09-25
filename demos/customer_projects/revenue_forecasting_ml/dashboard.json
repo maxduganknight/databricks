@@ -1,0 +1,1132 @@
+{
+  "datasets": [
+    {
+      "name": "ds_latest_prediction",
+      "displayName": "Latest Prediction",
+      "queryLines": [
+        "WITH latest AS ( ",
+        "  SELECT predicted_quarter, ",
+        "         ROUND(predicted_revenue, 0) AS predicted_revenue ",
+        "  FROM demand_forecast_demo_catalog.revenue_forecasting.revenue_predictions ",
+        "  WHERE scoring_date = (SELECT MAX(scoring_date) FROM demand_forecast_demo_catalog.revenue_forecasting.revenue_predictions) ",
+        "  ORDER BY week_start DESC LIMIT 1 ",
+        "), ",
+        "prev_quarter AS ( ",
+        "  SELECT ROUND(SUM(revenue), 0) AS prev_quarter_revenue ",
+        "  FROM demand_forecast_demo_catalog.revenue_forecasting.sales_transactions ",
+        "  WHERE sale_date >= DATE_TRUNC('QUARTER', DATE_ADD(CURRENT_DATE(), -90)) ",
+        "    AND sale_date < DATE_TRUNC('QUARTER', CURRENT_DATE()) ",
+        ") ",
+        "SELECT l.predicted_revenue, p.prev_quarter_revenue ",
+        "FROM latest l CROSS JOIN prev_quarter p"
+      ]
+    },
+    {
+      "name": "ds_best_model",
+      "displayName": "Best Model",
+      "queryLines": [
+        "SELECT model, ",
+        "ROUND(overall_mape, 1) AS mape_pct, ",
+        "ROUND(overall_r2, 3) AS r2 ",
+        "FROM demand_forecast_demo_catalog.revenue_forecasting.model_comparison ",
+        "ORDER BY overall_rmse LIMIT 1"
+      ]
+    },
+    {
+      "name": "ds_annual_revenue",
+      "displayName": "Annual Revenue",
+      "queryLines": [
+        "SELECT YEAR(sale_date) AS year, ",
+        "ROUND(SUM(revenue), 0) AS total_revenue ",
+        "FROM demand_forecast_demo_catalog.revenue_forecasting.sales_transactions ",
+        "GROUP BY YEAR(sale_date) ORDER BY year"
+      ]
+    },
+    {
+      "name": "ds_actual_vs_forecast_bars",
+      "displayName": "Actual vs Forecast Weekly Revenue",
+      "queryLines": [
+        "WITH actual_weekly AS ( ",
+        "  SELECT DATE_TRUNC('WEEK', sale_date) AS week_start, ",
+        "         ROUND(SUM(revenue), 0) AS revenue, ",
+        "         'Past Revenue' AS series ",
+        "  FROM demand_forecast_demo_catalog.revenue_forecasting.sales_transactions ",
+        "  WHERE sale_date >= '2025-01-01' ",
+        "  GROUP BY DATE_TRUNC('WEEK', sale_date) ",
+        "), ",
+        "forecast_weekly AS ( ",
+        "  SELECT week_start, ",
+        "         ROUND(predicted_revenue / 13, 0) AS revenue, ",
+        "         'Forecasted Revenue' AS series ",
+        "  FROM demand_forecast_demo_catalog.revenue_forecasting.revenue_predictions ",
+        "  WHERE actual_weekly_revenue IS NULL ",
+        "    AND scoring_date = (SELECT MAX(scoring_date) FROM demand_forecast_demo_catalog.revenue_forecasting.revenue_predictions WHERE actual_weekly_revenue IS NULL) ",
+        "  ORDER BY week_start LIMIT 13 ",
+        ") ",
+        "SELECT * FROM actual_weekly ",
+        "UNION ALL ",
+        "SELECT * FROM forecast_weekly ",
+        "ORDER BY week_start"
+      ]
+    },
+    {
+      "name": "ds_weekly_validation",
+      "displayName": "Weekly Actual vs Predicted",
+      "queryLines": [
+        "WITH actual_weekly AS ( ",
+        "  SELECT DATE_TRUNC('WEEK', sale_date) AS week_start, ",
+        "         ROUND(SUM(revenue), 0) AS revenue, ",
+        "         'Actual' AS series ",
+        "  FROM demand_forecast_demo_catalog.revenue_forecasting.sales_transactions ",
+        "  WHERE sale_date >= DATE_ADD(CURRENT_DATE(), -365) ",
+        "  GROUP BY DATE_TRUNC('WEEK', sale_date) ",
+        "), ",
+        "predicted_weekly AS ( ",
+        "  SELECT week_start, ",
+        "         ROUND(predicted_revenue / 13, 0) AS revenue, ",
+        "         'Predicted' AS series ",
+        "  FROM demand_forecast_demo_catalog.revenue_forecasting.revenue_predictions ",
+        "  WHERE actual_weekly_revenue IS NOT NULL ",
+        "    AND week_start >= DATE_ADD(CURRENT_DATE(), -365) ",
+        "    AND scoring_date = (SELECT MAX(scoring_date) FROM demand_forecast_demo_catalog.revenue_forecasting.revenue_predictions WHERE actual_weekly_revenue IS NOT NULL) ",
+        ") ",
+        "SELECT * FROM actual_weekly ",
+        "UNION ALL ",
+        "SELECT * FROM predicted_weekly ",
+        "ORDER BY week_start"
+      ]
+    },
+    {
+      "name": "ds_feature_importance",
+      "displayName": "Feature Importance",
+      "queryLines": [
+        "SELECT feature, ",
+        "ROUND(importance_mean, 0) AS importance, ",
+        "model_name ",
+        "FROM demand_forecast_demo_catalog.revenue_forecasting.feature_importance ",
+        "ORDER BY importance_mean DESC LIMIT 15"
+      ]
+    },
+    {
+      "name": "ds_model_comparison",
+      "displayName": "Model Comparison",
+      "queryLines": [
+        "SELECT model, ",
+        "ROUND(overall_rmse, 0) AS rmse, ",
+        "ROUND(overall_mae, 0) AS mae, ",
+        "ROUND(overall_r2, 3) AS r2, ",
+        "ROUND(overall_mape, 1) AS mape_pct ",
+        "FROM demand_forecast_demo_catalog.revenue_forecasting.model_comparison ",
+        "ORDER BY overall_rmse"
+      ]
+    },
+    {
+      "name": "ds_quarterly_trend",
+      "displayName": "Quarterly Revenue Trend",
+      "queryLines": [
+        "SELECT CONCAT(YEAR(sale_date), '-Q', QUARTER(sale_date)) AS quarter, ",
+        "ROUND(SUM(revenue), 0) AS revenue, ",
+        "SUM(quantity_sold) AS units ",
+        "FROM demand_forecast_demo_catalog.revenue_forecasting.sales_transactions ",
+        "GROUP BY CONCAT(YEAR(sale_date), '-Q', QUARTER(sale_date)) ",
+        "ORDER BY quarter"
+      ]
+    },
+    {
+      "name": "ds_category_growth",
+      "displayName": "Category Growth",
+      "queryLines": [
+        "WITH yearly AS ( ",
+        "SELECT p.category, YEAR(s.sale_date) AS yr, SUM(s.revenue) AS revenue ",
+        "FROM demand_forecast_demo_catalog.revenue_forecasting.sales_transactions s ",
+        "JOIN demand_forecast_demo_catalog.revenue_forecasting.products p ON s.sku = p.sku ",
+        "GROUP BY p.category, YEAR(s.sale_date)) ",
+        "SELECT a.category, ",
+        "ROUND(a.revenue, 0) AS current_revenue, ",
+        "ROUND(b.revenue, 0) AS prior_revenue, ",
+        "ROUND((a.revenue - b.revenue) / b.revenue * 100, 1) AS yoy_growth_pct ",
+        "FROM yearly a JOIN yearly b ON a.category = b.category AND a.yr = b.yr + 1 ",
+        "WHERE a.yr = (SELECT MAX(yr) FROM yearly) ",
+        "ORDER BY yoy_growth_pct DESC"
+      ]
+    },
+    {
+      "name": "ds_geo_growth",
+      "displayName": "Revenue by City",
+      "queryLines": [
+        "WITH yearly AS ( ",
+        "SELECT city, YEAR(sale_date) AS yr, SUM(revenue) AS revenue ",
+        "FROM demand_forecast_demo_catalog.revenue_forecasting.sales_transactions ",
+        "GROUP BY city, YEAR(sale_date)) ",
+        "SELECT a.city, ",
+        "ROUND(a.revenue, 0) AS current_revenue, ",
+        "ROUND((a.revenue - b.revenue) / b.revenue * 100, 1) AS yoy_growth_pct ",
+        "FROM yearly a JOIN yearly b ON a.city = b.city AND a.yr = b.yr + 1 ",
+        "WHERE a.yr = (SELECT MAX(yr) FROM yearly) ",
+        "ORDER BY yoy_growth_pct DESC"
+      ]
+    },
+    {
+      "name": "ds_yoy_growth",
+      "displayName": "YoY Revenue Growth",
+      "queryLines": [
+        "WITH yearly AS ( ",
+        "  SELECT YEAR(sale_date) AS yr, SUM(revenue) AS revenue ",
+        "  FROM demand_forecast_demo_catalog.revenue_forecasting.sales_transactions ",
+        "  GROUP BY YEAR(sale_date) ",
+        "), ",
+        "growth AS ( ",
+        "  SELECT a.yr, ROUND((a.revenue - b.revenue) / b.revenue * 100, 1) AS yoy_growth_pct ",
+        "  FROM yearly a JOIN yearly b ON a.yr = b.yr + 1 ",
+        ") ",
+        "SELECT g1.yoy_growth_pct, g2.yoy_growth_pct AS prior_yoy_growth_pct ",
+        "FROM growth g1 JOIN growth g2 ON g1.yr = g2.yr + 1 ",
+        "WHERE g1.yr = (SELECT MAX(yr) FROM growth)"
+      ]
+    },
+    {
+      "name": "ds_city_projected",
+      "displayName": "Projected Revenue by City",
+      "queryLines": [
+        "WITH next_q AS ( ",
+        "  SELECT predicted_revenue / 13 AS weekly_rev, week_start ",
+        "  FROM demand_forecast_demo_catalog.revenue_forecasting.revenue_predictions ",
+        "  WHERE actual_weekly_revenue IS NULL ",
+        "    AND scoring_date = (SELECT MAX(scoring_date) FROM demand_forecast_demo_catalog.revenue_forecasting.revenue_predictions WHERE actual_weekly_revenue IS NULL) ",
+        "  ORDER BY week_start LIMIT 13 ",
+        "), ",
+        "city_share AS ( ",
+        "  SELECT city, ",
+        "         SUM(revenue) / (SELECT SUM(revenue) FROM demand_forecast_demo_catalog.revenue_forecasting.sales_transactions WHERE sale_date >= DATE_ADD((SELECT MAX(sale_date) FROM demand_forecast_demo_catalog.revenue_forecasting.sales_transactions), -365)) AS pct ",
+        "  FROM demand_forecast_demo_catalog.revenue_forecasting.sales_transactions ",
+        "  WHERE sale_date >= DATE_ADD((SELECT MAX(sale_date) FROM demand_forecast_demo_catalog.revenue_forecasting.sales_transactions), -365) ",
+        "  GROUP BY city ",
+        ") ",
+        "SELECT cs.city, ROUND(SUM(nq.weekly_rev) * cs.pct, 0) AS projected_revenue ",
+        "FROM next_q nq CROSS JOIN city_share cs ",
+        "GROUP BY cs.city, cs.pct ",
+        "ORDER BY projected_revenue DESC"
+      ]
+    },
+    {
+      "name": "ds_category_projected",
+      "displayName": "Projected Revenue by Category",
+      "queryLines": [
+        "WITH next_q AS ( ",
+        "  SELECT predicted_revenue / 13 AS weekly_rev, week_start ",
+        "  FROM demand_forecast_demo_catalog.revenue_forecasting.revenue_predictions ",
+        "  WHERE actual_weekly_revenue IS NULL ",
+        "    AND scoring_date = (SELECT MAX(scoring_date) FROM demand_forecast_demo_catalog.revenue_forecasting.revenue_predictions WHERE actual_weekly_revenue IS NULL) ",
+        "  ORDER BY week_start LIMIT 13 ",
+        "), ",
+        "cat_share AS ( ",
+        "  SELECT p.category, ",
+        "         SUM(s.revenue) / (SELECT SUM(revenue) FROM demand_forecast_demo_catalog.revenue_forecasting.sales_transactions WHERE sale_date >= DATE_ADD((SELECT MAX(sale_date) FROM demand_forecast_demo_catalog.revenue_forecasting.sales_transactions), -365)) AS pct ",
+        "  FROM demand_forecast_demo_catalog.revenue_forecasting.sales_transactions s ",
+        "  JOIN demand_forecast_demo_catalog.revenue_forecasting.products p ON s.sku = p.sku ",
+        "  WHERE s.sale_date >= DATE_ADD((SELECT MAX(sale_date) FROM demand_forecast_demo_catalog.revenue_forecasting.sales_transactions), -365) ",
+        "  GROUP BY p.category ",
+        ") ",
+        "SELECT cs.category, ROUND(SUM(nq.weekly_rev) * cs.pct, 0) AS projected_revenue ",
+        "FROM next_q nq CROSS JOIN cat_share cs ",
+        "GROUP BY cs.category, cs.pct ",
+        "ORDER BY projected_revenue DESC"
+      ]
+    },
+    {
+      "name": "ds_forecast_line",
+      "displayName": "Forecast Line",
+      "queryLines": [
+        "WITH actual_weekly AS ( ",
+        "  SELECT DATE_TRUNC('WEEK', sale_date) AS week_start, ",
+        "         ROUND(SUM(revenue), 0) AS original ",
+        "  FROM demand_forecast_demo_catalog.revenue_forecasting.sales_transactions ",
+        "  WHERE sale_date >= '2025-01-01' ",
+        "  GROUP BY DATE_TRUNC('WEEK', sale_date) ",
+        "), ",
+        "forecast_weekly AS ( ",
+        "  SELECT week_start, ",
+        "         ROUND(predicted_revenue / 13, 0) AS prediction, ",
+        "         ROUND(predicted_revenue_lower / 13, 0) AS prediction_lower, ",
+        "         ROUND(predicted_revenue_upper / 13, 0) AS prediction_upper ",
+        "  FROM demand_forecast_demo_catalog.revenue_forecasting.revenue_predictions ",
+        "  WHERE actual_weekly_revenue IS NULL ",
+        "    AND scoring_date = (SELECT MAX(scoring_date) FROM demand_forecast_demo_catalog.revenue_forecasting.revenue_predictions WHERE actual_weekly_revenue IS NULL) ",
+        "  ORDER BY week_start LIMIT 13 ",
+        ") ",
+        "SELECT a.week_start, a.original, CAST(NULL AS BIGINT) AS prediction, CAST(NULL AS BIGINT) AS prediction_lower, CAST(NULL AS BIGINT) AS prediction_upper ",
+        "FROM actual_weekly a ",
+        "UNION ALL ",
+        "SELECT f.week_start, CAST(NULL AS BIGINT) AS original, f.prediction, f.prediction_lower, f.prediction_upper ",
+        "FROM forecast_weekly f ",
+        "ORDER BY week_start"
+      ]
+    },
+    {
+      "name": "ds_stockout_risk",
+      "displayName": "Stock-Out Risk by SKU",
+      "queryLines": [
+        "WITH recent_velocity AS ( ",
+        "  SELECT s.sku, p.name, p.category, ",
+        "         SUM(s.quantity_sold) AS units_last_4w, ",
+        "         ROUND(SUM(s.quantity_sold) / 4.0, 0) AS avg_weekly_units ",
+        "  FROM demand_forecast_demo_catalog.revenue_forecasting.sales_transactions s ",
+        "  JOIN demand_forecast_demo_catalog.revenue_forecasting.products p ON s.sku = p.sku ",
+        "  WHERE s.sale_date >= DATE_ADD((SELECT MAX(sale_date) FROM demand_forecast_demo_catalog.revenue_forecasting.sales_transactions), -28) ",
+        "  GROUP BY s.sku, p.name, p.category ",
+        "), ",
+        "projected_demand AS ( ",
+        "  SELECT rv.sku, rv.name, rv.category, rv.avg_weekly_units, ",
+        "         rv.avg_weekly_units * 13 AS projected_13w_units, ",
+        "         ROUND(rv.avg_weekly_units * 1.15, 0) AS peak_weekly_units ",
+        "  FROM recent_velocity rv ",
+        ") ",
+        "SELECT sku, name, category, ",
+        "       CAST(avg_weekly_units AS INT) AS avg_weekly_units, ",
+        "       CAST(projected_13w_units AS INT) AS projected_13w_demand, ",
+        "       CAST(peak_weekly_units AS INT) AS peak_weekly_units, ",
+        "       ROUND((peak_weekly_units - avg_weekly_units) / NULLIF(avg_weekly_units, 0) * 100, 0) AS demand_surge_pct, ",
+        "       CASE ",
+        "         WHEN avg_weekly_units >= 50 THEN 'High' ",
+        "         WHEN avg_weekly_units >= 20 THEN 'Medium' ",
+        "         ELSE 'Low' ",
+        "       END AS risk_level ",
+        "FROM projected_demand ",
+        "ORDER BY avg_weekly_units DESC"
+      ]
+    },
+    {
+      "name": "ds_stockout_risk_chart",
+      "displayName": "Stock-Out Risk Chart",
+      "queryLines": [
+        "WITH recent_velocity AS ( ",
+        "  SELECT s.sku, p.name, p.category, ",
+        "         ROUND(SUM(s.quantity_sold) / 4.0, 0) AS avg_weekly_units ",
+        "  FROM demand_forecast_demo_catalog.revenue_forecasting.sales_transactions s ",
+        "  JOIN demand_forecast_demo_catalog.revenue_forecasting.products p ON s.sku = p.sku ",
+        "  WHERE s.sale_date >= DATE_ADD((SELECT MAX(sale_date) FROM demand_forecast_demo_catalog.revenue_forecasting.sales_transactions), -28) ",
+        "  GROUP BY s.sku, p.name, p.category ",
+        ") ",
+        "SELECT name, category, CAST(avg_weekly_units AS INT) AS avg_weekly_units, ",
+        "       CAST(avg_weekly_units * 13 AS INT) AS projected_13w_demand, ",
+        "       CASE ",
+        "         WHEN avg_weekly_units >= 50 THEN 'High' ",
+        "         WHEN avg_weekly_units >= 20 THEN 'Medium' ",
+        "         ELSE 'Low' ",
+        "       END AS risk_level ",
+        "FROM recent_velocity ",
+        "ORDER BY avg_weekly_units DESC"
+      ]
+    },
+    {
+      "name": "ds_total_transactions",
+      "displayName": "Total Transactions",
+      "queryLines": [
+        "SELECT COUNT(*) AS total_transactions, ",
+        "ROUND(SUM(revenue), 0) AS total_revenue_all_time ",
+        "FROM demand_forecast_demo_catalog.revenue_forecasting.sales_transactions"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "page_forecast",
+      "displayName": "Revenue Forecast",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layout": [
+        {
+          "widget": {
+            "name": "w_kpi_forecast",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_latest_prediction",
+                  "fields": [
+                    {
+                      "name": "predicted_revenue",
+                      "expression": "`predicted_revenue`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "predicted_revenue",
+                  "displayName": "Next Quarter Forecast"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Next Quarter Revenue Forecast"
+              }
+            }
+          },
+          "position": { "x": 0, "y": 0, "width": 2, "height": 2 }
+        },
+        {
+          "widget": {
+            "name": "w_kpi_mape",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_best_model",
+                  "fields": [
+                    { "name": "mape_pct", "expression": "`mape_pct`" }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "mape_pct",
+                  "displayName": "Best Model MAPE %"
+                }
+              },
+              "frame": { "showTitle": true, "title": "Model Accuracy (MAPE %)" }
+            }
+          },
+          "position": { "x": 2, "y": 0, "width": 2, "height": 2 }
+        },
+        {
+          "widget": {
+            "name": "w_kpi_yoy",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_yoy_growth",
+                  "fields": [
+                    {
+                      "name": "yoy_growth_pct",
+                      "expression": "`yoy_growth_pct`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "yoy_growth_pct",
+                  "displayName": "YoY Growth %"
+                }
+              },
+              "frame": { "showTitle": true, "title": "Year-over-Year Growth %" }
+            }
+          },
+          "position": { "x": 4, "y": 0, "width": 2, "height": 2 }
+        },
+        {
+          "widget": {
+            "name": "w_actual_vs_forecast",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_actual_vs_forecast_bars",
+                  "fields": [
+                    { "name": "week_start", "expression": "`week_start`" },
+                    { "name": "revenue", "expression": "`revenue`" },
+                    { "name": "series", "expression": "`series`" }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "week_start",
+                  "scale": { "type": "temporal" },
+                  "displayName": "Week"
+                },
+                "y": {
+                  "fieldName": "revenue",
+                  "scale": { "type": "quantitative" },
+                  "displayName": "Weekly Revenue ($)"
+                },
+                "color": {
+                  "fieldName": "series",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      { "value": "Past Revenue", "color": "#8BCAE7" },
+                      { "value": "Forecasted Revenue", "color": "#FFAB00" }
+                    ]
+                  },
+                  "displayName": "Series"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Weekly Revenue: Actual vs Predicted"
+              }
+            }
+          },
+          "position": { "x": 0, "y": 2, "width": 6, "height": 5 }
+        },
+        {
+          "widget": {
+            "name": "w_city_projected",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_city_projected",
+                  "fields": [
+                    { "name": "city", "expression": "`city`" },
+                    {
+                      "name": "projected_revenue",
+                      "expression": "`projected_revenue`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "city",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": { "by": "y-reversed" }
+                  },
+                  "displayName": "City"
+                },
+                "y": {
+                  "fieldName": "projected_revenue",
+                  "scale": { "type": "quantitative" },
+                  "displayName": "Projected Revenue ($)"
+                },
+                "label": { "show": true }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Projected Next Quarter Revenue by City"
+              },
+              "mark": { "colors": ["#AB4057"] }
+            }
+          },
+          "position": { "x": 0, "y": 7, "width": 3, "height": 5 }
+        },
+        {
+          "widget": {
+            "name": "w_category_projected",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_category_projected",
+                  "fields": [
+                    { "name": "category", "expression": "`category`" },
+                    {
+                      "name": "projected_revenue",
+                      "expression": "`projected_revenue`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "category",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": { "by": "y-reversed" }
+                  },
+                  "displayName": "Category"
+                },
+                "y": {
+                  "fieldName": "projected_revenue",
+                  "scale": { "type": "quantitative" },
+                  "displayName": "Projected Revenue ($)"
+                },
+                "label": { "show": true }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Projected Next Quarter Revenue by Category"
+              },
+              "mark": { "colors": ["#00A972"] }
+            }
+          },
+          "position": { "x": 3, "y": 7, "width": 3, "height": 5 }
+        },
+        {
+          "widget": {
+            "name": "w_weekly_validation",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_weekly_validation",
+                  "fields": [
+                    { "name": "week_start", "expression": "`week_start`" },
+                    { "name": "revenue", "expression": "AVG(`revenue`)" },
+                    { "name": "series", "expression": "`series`" }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "week_start",
+                  "scale": { "type": "temporal" },
+                  "displayName": "Week"
+                },
+                "y": {
+                  "fieldName": "revenue",
+                  "scale": { "type": "quantitative" },
+                  "displayName": "Weekly Revenue ($)"
+                },
+                "color": {
+                  "fieldName": "series",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      { "value": "Actual", "color": "#8BCAE7" },
+                      { "value": "Predicted", "color": "#FFAB00" }
+                    ]
+                  },
+                  "displayName": "Series"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Model Validation: Actual vs Predicted Weekly Revenue (Last 12 Months)"
+              }
+            }
+          },
+          "position": { "x": 0, "y": 11, "width": 6, "height": 5 }
+        },
+        {
+          "widget": {
+            "name": "w_feature_importance",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_feature_importance",
+                  "fields": [
+                    { "name": "feature", "expression": "`feature`" },
+                    { "name": "importance", "expression": "`importance`" }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "feature",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": { "by": "y-reversed" }
+                  },
+                  "displayName": "Feature"
+                },
+                "y": {
+                  "fieldName": "importance",
+                  "scale": { "type": "quantitative" },
+                  "displayName": "Permutation Importance"
+                },
+                "label": { "show": true }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Top 15 Predictive Features"
+              },
+              "mark": { "colors": ["#00A972"] }
+            }
+          },
+          "position": { "x": 0, "y": 16, "width": 6, "height": 5 }
+        },
+        {
+          "widget": {
+            "name": "w_model_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_model_comparison",
+                  "fields": [
+                    { "name": "model", "expression": "`model`" },
+                    { "name": "rmse", "expression": "`rmse`" },
+                    { "name": "mae", "expression": "`mae`" },
+                    { "name": "r2", "expression": "`r2`" },
+                    { "name": "mape_pct", "expression": "`mape_pct`" }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "model",
+                    "type": "string",
+                    "displayAs": "string",
+                    "title": "Model",
+                    "displayName": "Model"
+                  },
+                  {
+                    "fieldName": "rmse",
+                    "type": "float",
+                    "displayAs": "number",
+                    "numberFormat": "$#,##0",
+                    "title": "RMSE",
+                    "alignContent": "right"
+                  },
+                  {
+                    "fieldName": "mae",
+                    "type": "float",
+                    "displayAs": "number",
+                    "numberFormat": "$#,##0",
+                    "title": "MAE",
+                    "alignContent": "right"
+                  },
+                  {
+                    "fieldName": "r2",
+                    "type": "float",
+                    "displayAs": "number",
+                    "numberFormat": "0.000",
+                    "title": "R²",
+                    "alignContent": "right"
+                  },
+                  {
+                    "fieldName": "mape_pct",
+                    "type": "float",
+                    "displayAs": "number",
+                    "numberFormat": "0.0'%'",
+                    "title": "MAPE",
+                    "alignContent": "right"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Model Comparison (Sorted by RMSE)"
+              }
+            }
+          },
+          "position": { "x": 0, "y": 21, "width": 6, "height": 3 }
+        },
+        {
+          "widget": {
+            "name": "w_forecast_line",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_forecast_line",
+                  "fields": [
+                    { "name": "week_start", "expression": "`week_start`" },
+                    { "name": "original", "expression": "`original`" },
+                    { "name": "prediction", "expression": "`prediction`" },
+                    { "name": "prediction_lower", "expression": "`prediction_lower`" },
+                    { "name": "prediction_upper", "expression": "`prediction_upper`" }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "week_start",
+                  "scale": { "type": "temporal" },
+                  "displayName": "Week"
+                },
+                "y": [
+                  {
+                    "fieldName": "original",
+                    "scale": { "type": "quantitative" },
+                    "displayName": "Actual Revenue ($)"
+                  },
+                  {
+                    "fieldName": "prediction",
+                    "scale": { "type": "quantitative" },
+                    "displayName": "Predicted Revenue ($)"
+                  },
+                  {
+                    "fieldName": "prediction_upper",
+                    "scale": { "type": "quantitative" },
+                    "displayName": "Upper Bound ($)"
+                  },
+                  {
+                    "fieldName": "prediction_lower",
+                    "scale": { "type": "quantitative" },
+                    "displayName": "Lower Bound ($)"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Revenue Forecast with Confidence Interval"
+              }
+            }
+          },
+          "position": { "x": 0, "y": 24, "width": 6, "height": 5 }
+        }
+      ]
+    },
+    {
+      "name": "page_sales",
+      "displayName": "Sales Analysis",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layout": [
+        {
+          "widget": {
+            "name": "w_kpi_total_rev",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_total_transactions",
+                  "fields": [
+                    {
+                      "name": "total_revenue_all_time",
+                      "expression": "`total_revenue_all_time`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "total_revenue_all_time",
+                  "displayName": "All-Time Revenue"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Total Revenue (All Time)"
+              }
+            }
+          },
+          "position": { "x": 0, "y": 0, "width": 3, "height": 2 }
+        },
+        {
+          "widget": {
+            "name": "w_kpi_total_txn",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_total_transactions",
+                  "fields": [
+                    {
+                      "name": "total_transactions",
+                      "expression": "`total_transactions`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "total_transactions",
+                  "displayName": "Total Transactions"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Total Transactions (All Time)"
+              }
+            }
+          },
+          "position": { "x": 3, "y": 0, "width": 3, "height": 2 }
+        },
+        {
+          "widget": {
+            "name": "w_quarterly_trend",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_quarterly_trend",
+                  "fields": [
+                    { "name": "quarter", "expression": "`quarter`" },
+                    { "name": "revenue", "expression": "`revenue`" }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "quarter",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": { "by": "natural-order" }
+                  },
+                  "displayName": "Quarter"
+                },
+                "y": {
+                  "fieldName": "revenue",
+                  "scale": { "type": "quantitative" },
+                  "displayName": "Revenue ($)"
+                },
+                "label": { "show": false }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Quarterly Revenue Trend (2021–2025)"
+              },
+              "mark": { "colors": ["#8BCAE7"] }
+            }
+          },
+          "position": { "x": 0, "y": 2, "width": 6, "height": 5 }
+        },
+        {
+          "widget": {
+            "name": "w_annual_revenue",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_annual_revenue",
+                  "fields": [
+                    { "name": "year", "expression": "CAST(`year` AS STRING)" },
+                    { "name": "total_revenue", "expression": "`total_revenue`" }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "year",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": { "by": "natural-order" }
+                  },
+                  "displayName": "Year"
+                },
+                "y": {
+                  "fieldName": "total_revenue",
+                  "scale": { "type": "quantitative" },
+                  "displayName": "Revenue ($)"
+                },
+                "label": { "show": true }
+              },
+              "frame": { "showTitle": true, "title": "Annual Revenue" },
+              "mark": { "colors": ["#FFAB00"] }
+            }
+          },
+          "position": { "x": 0, "y": 7, "width": 3, "height": 5 }
+        },
+        {
+          "widget": {
+            "name": "w_category_growth",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_category_growth",
+                  "fields": [
+                    { "name": "category", "expression": "`category`" },
+                    {
+                      "name": "yoy_growth_pct",
+                      "expression": "`yoy_growth_pct`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "category",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": { "by": "y-reversed" }
+                  },
+                  "displayName": "Category"
+                },
+                "y": {
+                  "fieldName": "yoy_growth_pct",
+                  "scale": { "type": "quantitative" },
+                  "displayName": "YoY Growth %"
+                },
+                "label": { "show": true }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Category Revenue Growth (YoY %)"
+              },
+              "mark": { "colors": ["#00A972"] }
+            }
+          },
+          "position": { "x": 3, "y": 7, "width": 3, "height": 5 }
+        },
+        {
+          "widget": {
+            "name": "w_geo_growth",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_geo_growth",
+                  "fields": [
+                    { "name": "city", "expression": "`city`" },
+                    {
+                      "name": "current_revenue",
+                      "expression": "`current_revenue`"
+                    },
+                    {
+                      "name": "yoy_growth_pct",
+                      "expression": "`yoy_growth_pct`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "city",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": { "by": "y-reversed" }
+                  },
+                  "displayName": "City"
+                },
+                "y": {
+                  "fieldName": "current_revenue",
+                  "scale": { "type": "quantitative" },
+                  "displayName": "Revenue ($)"
+                },
+                "label": { "show": true }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Revenue by City (Current Year)"
+              },
+              "mark": { "colors": ["#AB4057"] }
+            }
+          },
+          "position": { "x": 0, "y": 12, "width": 6, "height": 5 }
+        }
+      ]
+    }
+    ,{
+      "name": "page_supply_chain",
+      "displayName": "Supply Chain",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layout": [
+        {
+          "widget": {
+            "name": "w_stockout_bar",
+            "queries": [{"name": "main_query", "query": {"datasetName": "ds_stockout_risk_chart", "fields": [{"name": "name", "expression": "`name`"}, {"name": "projected_13w_demand", "expression": "`projected_13w_demand`"}, {"name": "risk_level", "expression": "`risk_level`"}], "disaggregated": true}}],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {"fieldName": "name", "scale": {"type": "categorical", "sort": {"by": "x-reversed"}}, "displayName": "Product"},
+                "x": {"fieldName": "projected_13w_demand", "scale": {"type": "quantitative"}, "displayName": "Projected 13-Week Demand (Units)"},
+                "color": {
+                  "fieldName": "risk_level",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {"value": "High", "color": "#FF3621"},
+                      {"value": "Medium", "color": "#FFAB00"},
+                      {"value": "Low", "color": "#00A972"}
+                    ]
+                  },
+                  "displayName": "Stock-Out Risk"
+                }
+              },
+              "frame": {"showTitle": true, "title": "Projected 13-Week Demand by SKU (Stock-Out Risk)"}
+            }
+          },
+          "position": {"x": 0, "y": 0, "width": 6, "height": 6}
+        },
+        {
+          "widget": {
+            "name": "w_stockout_table",
+            "queries": [{"name": "main_query", "query": {"datasetName": "ds_stockout_risk", "fields": [{"name": "name", "expression": "`name`"}, {"name": "category", "expression": "`category`"}, {"name": "avg_weekly_units", "expression": "`avg_weekly_units`"}, {"name": "projected_13w_demand", "expression": "`projected_13w_demand`"}, {"name": "peak_weekly_units", "expression": "`peak_weekly_units`"}, {"name": "demand_surge_pct", "expression": "`demand_surge_pct`"}, {"name": "risk_level", "expression": "`risk_level`"}], "disaggregated": true}}],
+            "spec": {
+              "version": 1,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {"fieldName": "name", "type": "string", "displayAs": "string", "title": "Product"},
+                  {"fieldName": "category", "type": "string", "displayAs": "string", "title": "Category"},
+                  {"fieldName": "avg_weekly_units", "type": "integer", "displayAs": "number", "numberFormat": "#,##0", "title": "Avg Weekly Units", "alignContent": "right"},
+                  {"fieldName": "projected_13w_demand", "type": "integer", "displayAs": "number", "numberFormat": "#,##0", "title": "13-Week Demand", "alignContent": "right"},
+                  {"fieldName": "peak_weekly_units", "type": "integer", "displayAs": "number", "numberFormat": "#,##0", "title": "Peak Weekly Units", "alignContent": "right"},
+                  {"fieldName": "demand_surge_pct", "type": "float", "displayAs": "number", "numberFormat": "0'%'", "title": "Surge %", "alignContent": "right"},
+                  {"fieldName": "risk_level", "type": "string", "displayAs": "string", "title": "Risk Level"}
+                ]
+              },
+              "frame": {"showTitle": true, "title": "SKU Demand Forecast & Stock-Out Risk Detail"}
+            }
+          },
+          "position": {"x": 0, "y": 6, "width": 6, "height": 6}
+        }
+      ]
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "widgetHeaderAlignment": "ALIGNMENT_UNSPECIFIED"
+    },
+    "applyModeEnabled": false
+  }
+}

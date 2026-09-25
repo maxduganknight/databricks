@@ -1,0 +1,30 @@
+# Runs on every PR and push to main: lint + test
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r src/app/requirements.txt
+          pip install pytest ruff
+
+      - name: Lint
+        run: ruff check ./src/app
+
+      - name: Test
+        run: |
+          cd src/app
+          pytest tests/ -v
