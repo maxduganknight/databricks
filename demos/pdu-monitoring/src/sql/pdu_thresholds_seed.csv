@@ -1,0 +1,5 @@
+scope_type,scope_value,metric,breach_min,warn_min,warn_max,breach_max,description
+GLOBAL,,voltage,220,228,252,260,240 V nominal: warn outside +/-5%; breach outside 220-260 V
+GLOBAL,,temperature,,,45,55,PDU inlet temperature: warn above 45 C; breach above 55 C
+MODEL,PDU-HD-32A,temperature,,,50,60,High-density PDUs are rated for higher inlet temperature
+RACK,R02,voltage,222,230,250,258,Example rack override: R02 feeder has tighter voltage tolerance

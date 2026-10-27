@@ -1,0 +1,25 @@
+# Synthetic bronze telemetry generator (demo only - a real deployment already has bronze data).
+# Run on demand for the initial backfill; the scheduled pdu-refresh job (refresh.job.yml) calls the same notebook.
+resources:
+  jobs:
+    pdu_synthetic_generator:
+      name: pdu-synthetic-telemetry-generator
+      description: Appends synthetic second-level PDU telemetry up to now and applies retention.
+      max_concurrent_runs: 1
+      parameters:
+        - name: backfill_hours
+          default: "6"
+      tasks:
+        - task_key: generate_telemetry
+          # No cluster spec -> runs on serverless jobs compute.
+          notebook_task:
+            notebook_path: ../src/notebooks/generate_synthetic_telemetry.ipynb
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              bronze_table: ${var.bronze_table}
+              backfill_hours: "{{job.parameters.backfill_hours}}"
+              retention_days: "7"
+      email_notifications:
+        on_failure:
+          - ${var.alert_email}

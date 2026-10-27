@@ -1,0 +1,42 @@
+# Databricks App (Dash). Runs as its own service principal; resources below grant it exactly what it needs.
+resources:
+  apps:
+    pdu_app:
+      name: ${var.app_name}
+      description: PDU rack monitoring and troubleshooting (Lakebase + SQL warehouse).
+      source_code_path: ../src/app
+      resources:
+        - name: lakebase
+          description: App database (synced pdu_latest_status + operator-state tables)
+          postgres:
+            branch: ${resources.postgres_branches.production.name}
+            database: ${resources.postgres_databases.pdu_db.name}
+            permission: CAN_CONNECT_AND_CREATE
+        - name: sql-warehouse
+          description: Warehouse for on-demand single-unit bronze queries
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE
+        - name: bronze-table
+          description: Second-level telemetry, read only for the troubleshooting page
+          uc_securable:
+            securable_full_name: ${var.catalog}.${var.schema}.${var.bronze_table}
+            securable_type: TABLE
+            permission: SELECT
+      config:
+        env:
+          - name: LAKEBASE_ENDPOINT
+            value_from: lakebase
+          - name: DATABRICKS_WAREHOUSE_ID
+            value_from: sql-warehouse
+          - name: BRONZE_TABLE
+            value: ${var.catalog}.${var.schema}.${var.bronze_table}
+          - name: LB_SYNCED_SCHEMA
+            value: ${var.schema}
+          - name: LB_SYNCED_TABLE
+            value: pdu_latest_status_synced
+          - name: LB_APP_SCHEMA
+            value: pdu_app
+      permissions:
+        - level: CAN_MANAGE
+          user_name: ${workspace.current_user.userName}

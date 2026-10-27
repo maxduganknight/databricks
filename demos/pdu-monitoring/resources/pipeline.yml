@@ -1,0 +1,27 @@
+# Spark Declarative Pipeline: bronze (second-level) -> pdu_minute_stats -> pdu_latest_status (+ pdu_thresholds).
+# Triggered (not continuous): the refresh job runs it every 5 minutes; serverless keeps it cheap.
+resources:
+  pipelines:
+    pdu_monitoring:
+      name: pdu-monitoring-pipeline
+      catalog: ${var.catalog}
+      schema: ${var.schema}
+      serverless: true
+      continuous: false
+      channel: CURRENT
+      root_path: ../src/pipeline
+      libraries:
+        - glob:
+            include: ../src/pipeline/transformations/**
+      configuration:
+        pdu.bronze_table: ${var.catalog}.${var.schema}.${var.bronze_table}
+        pdu.thresholds_csv: ${workspace.file_path}/src/sql/pdu_thresholds_seed.csv
+        pdu.watermark: 1 minute
+        pdu.status_lookback_hours: "24"
+        pdu.stale_after_minutes: "3"
+      notifications:
+        - email_recipients:
+            - ${var.alert_email}
+          alerts:
+            - on-update-fatal-failure
+            - on-update-failure

@@ -1,0 +1,22 @@
+# Applies Lakebase migrations (src/sql/lakebase) and grants the app's service principal access.
+# Run after each deploy that changes migrations or recreates the app:
+#   databricks bundle run pdu_lakebase_setup
+resources:
+  jobs:
+    pdu_lakebase_setup:
+      name: pdu-lakebase-setup
+      description: Apply Lakebase migrations and grant the app service principal.
+      max_concurrent_runs: 1
+      tasks:
+        - task_key: migrate_and_grant
+          notebook_task:
+            notebook_path: ../src/notebooks/lakebase_migrate.ipynb
+            base_parameters:
+              lakebase_endpoint: ${resources.postgres_endpoints.primary.name}
+              database: ${resources.postgres_databases.pdu_db.postgres_database}
+              app_name: ${resources.apps.pdu_app.name}
+              synced_schema: ${var.schema}
+              synced_table: pdu_latest_status_synced
+      email_notifications:
+        on_failure:
+          - ${var.alert_email}

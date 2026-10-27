@@ -1,0 +1,33 @@
+# Email when the number of PDUs in BREACH goes from 0 to > 0.
+# Evaluated every 5 minutes against the Unity Catalog status MV, so it works even if the app is down.
+# Acknowledgements live in Lakebase and do not suppress this alert; it is a fleet-level signal.
+# Cost: every evaluation runs on the SQL warehouse, so an every-5-minutes alert keeps it from
+# auto-stopping. Paused by default in dev (var.breach_alert_pause_status); unpause for demos.
+resources:
+  alerts:
+    pdu_breach:
+      # Dev mode prefixes "[dev <user>]" automatically.
+      display_name: PDU breach
+      warehouse_id: ${var.warehouse_id}
+      query_text: |
+        SELECT
+          count_if(status = 'BREACH') AS breached_units,
+          array_join(slice(array_sort(collect_list(CASE WHEN status = 'BREACH' THEN unit_id END)), 1, 20), ', ') AS breached_unit_ids,
+          max(updated_at) AS status_updated_at
+        FROM ${var.catalog}.${var.schema}.pdu_latest_status
+      evaluation:
+        comparison_operator: GREATER_THAN
+        source:
+          name: breached_units
+          display: breached_units
+        threshold:
+          value:
+            double_value: 0
+        notification:
+          notify_on_ok: false
+          subscriptions:
+            - user_email: ${var.alert_email}
+      schedule:
+        pause_status: ${var.breach_alert_pause_status}
+        quartz_cron_schedule: "0 2/5 * * * ?"
+        timezone_id: UTC

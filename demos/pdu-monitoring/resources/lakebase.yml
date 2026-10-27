@@ -1,0 +1,64 @@
+# Lakebase (Postgres, Autoscaling) for the app: one project / branch / read-write endpoint / database,
+# a SNAPSHOT synced copy of pdu_latest_status (one row per PDU), and app-owned operator-state tables
+# (created by the lakebase_migrate job from src/sql/lakebase/*.sql).
+# Second-level bronze data is NOT synced to Lakebase.
+resources:
+  postgres_projects:
+    pdu:
+      project_id: ${var.lakebase_project}
+      display_name: PDU Monitoring (${bundle.target})
+      pg_version: 17
+      default_endpoint_settings:
+        autoscaling_limit_min_cu: 0.5
+        autoscaling_limit_max_cu: 2
+        suspend_timeout_duration: 300s
+
+  # Implicit branch / endpoint created with the project, adopted so their settings live in the bundle.
+  postgres_branches:
+    production:
+      branch_id: production
+      parent: ${resources.postgres_projects.pdu.name}
+      no_expiry: true
+      replace_existing: true
+
+  postgres_endpoints:
+    primary:
+      endpoint_id: primary
+      parent: ${resources.postgres_branches.production.name}
+      endpoint_type: ENDPOINT_TYPE_READ_WRITE
+      autoscaling_limit_min_cu: 0.5
+      autoscaling_limit_max_cu: 2
+      suspend_timeout_duration: 300s
+      replace_existing: true
+
+  # Group-style Postgres role that owns the app database (not tied to any person).
+  postgres_roles:
+    pdu_owner:
+      role_id: pdu-owner
+      parent: ${resources.postgres_branches.production.name}
+      postgres_role: pdu_owner
+
+  postgres_databases:
+    pdu_db:
+      database_id: pdu-monitoring
+      parent: ${resources.postgres_branches.production.name}
+      postgres_database: ${var.lakebase_database}
+      role: ${resources.postgres_roles.pdu_owner.id}
+
+  postgres_synced_tables:
+    pdu_latest_status:
+      # UC name of the synced table; in Postgres it lands as <schema>.pdu_latest_status_synced.
+      synced_table_id: ${var.catalog}.${var.schema}.pdu_latest_status_synced
+      branch: ${resources.postgres_branches.production.name}
+      postgres_database: ${resources.postgres_databases.pdu_db.postgres_database}
+      source_table_full_name: ${var.catalog}.${var.schema}.pdu_latest_status
+      primary_key_columns:
+        - unit_id
+      # SNAPSHOT: the source is a ~100-row materialized view that is fully recomputed every pipeline
+      # update, so a full copy is cheaper than CDF-based TRIGGERED sync and needs no CDF on the MV.
+      # Refreshed by the pdu-refresh job right after each pipeline update.
+      scheduling_policy: SNAPSHOT
+      create_database_objects_if_missing: true
+      new_pipeline_spec:
+        storage_catalog: ${var.catalog}
+        storage_schema: ${var.schema}

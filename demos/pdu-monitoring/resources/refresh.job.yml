@@ -1,0 +1,54 @@
+# End-to-end refresh every 5 minutes: synthetic bronze -> SDP pipeline -> Lakebase snapshot sync.
+# With a real bronze feed, delete the generate_telemetry task (and its depends_on below).
+resources:
+  jobs:
+    pdu_refresh:
+      name: pdu-refresh
+      description: Every 5 min - append synthetic telemetry, update the monitoring pipeline, sync status to Lakebase.
+      max_concurrent_runs: 1
+      # If a run is still going when the next tick fires, skip the tick instead of queueing a backlog.
+      queue:
+        enabled: false
+      schedule:
+        quartz_cron_expression: "0 0/5 * * * ?"
+        timezone_id: UTC
+        pause_status: UNPAUSED
+      timeout_seconds: 1200
+      health:
+        rules:
+          - metric: RUN_DURATION_SECONDS
+            op: GREATER_THAN
+            value: 480
+      tasks:
+        - task_key: generate_telemetry
+          notebook_task:
+            notebook_path: ../src/notebooks/generate_synthetic_telemetry.ipynb
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              bronze_table: ${var.bronze_table}
+              backfill_hours: "6"
+              retention_days: "7"
+
+        - task_key: update_pipeline
+          depends_on:
+            - task_key: generate_telemetry
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.pdu_monitoring.id}
+            full_refresh: false
+
+        - task_key: sync_lakebase
+          depends_on:
+            - task_key: update_pipeline
+          notebook_task:
+            notebook_path: ../src/notebooks/refresh_lakebase_sync.ipynb
+            base_parameters:
+              synced_table: ${var.catalog}.${var.schema}.pdu_latest_status_synced
+              timeout_minutes: "10"
+      email_notifications:
+        on_failure:
+          - ${var.alert_email}
+        on_duration_warning_threshold_exceeded:
+          - ${var.alert_email}
+        # A 5-minute schedule fails noisily during outages; skip mails for skipped/cancelled runs.
+        no_alert_for_skipped_runs: true
