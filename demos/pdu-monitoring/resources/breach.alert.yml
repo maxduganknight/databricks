@@ -1,5 +1,5 @@
 # Email when the number of PDUs in BREACH goes from 0 to > 0.
-# Evaluated every 5 minutes against the Unity Catalog status MV, so it works even if the app is down.
+# Evaluated on var.breach_alert_cron (default every 5 minutes) against the Unity Catalog status MV, so it works even if the app is down.
 # Acknowledgements live in Lakebase and do not suppress this alert; it is a fleet-level signal.
 # Cost: every evaluation runs on the SQL warehouse, so an every-5-minutes alert keeps it from
 # auto-stopping. Paused by default in dev (var.breach_alert_pause_status); unpause for demos.
@@ -29,5 +29,5 @@ resources:
             - user_email: ${var.alert_email}
       schedule:
         pause_status: ${var.breach_alert_pause_status}
-        quartz_cron_schedule: "0 2/5 * * * ?"
-        timezone_id: UTC
+        quartz_cron_schedule: ${var.breach_alert_cron}
+        timezone_id: ${var.breach_alert_timezone}

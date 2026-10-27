@@ -1,0 +1,132 @@
+# PDU Monitoring - configuration
+#
+# This is the ONE place to change settings. Every value below is a bundle variable that the
+# resource files in resources/ reference as ${var.<name>}.
+#
+# * Change a default here, then run `databricks bundle deploy -t <target>`
+#   (and `databricks bundle run pdu_app -t <target>` for the App settings).
+# * Per-environment overrides live in databricks.yml under targets.<target>.variables,
+#   or pass them on the command line: --var name=value.
+# * Voltage / temperature THRESHOLDS are not here: edit src/sql/pdu_thresholds_seed.csv
+#   (global, per model, per rack or per unit rules), then deploy; the next pipeline update applies them.
+#
+# Values consumed as text (job parameters, pipeline configuration, app env vars) are quoted.
+
+variables:
+  # ------------------------------------------------------------------ data location
+  catalog:
+    description: Unity Catalog catalog that holds the PDU monitoring schema.
+    default: mdk_demo_catalog
+  schema:
+    # Treated as a prerequisite (it holds the existing bronze table), so it is NOT a
+    # bundle-managed resource: `bundle destroy` must never drop bronze data. The synthetic data
+    # generator creates it if missing.
+    description: Schema for bronze telemetry and pipeline outputs.
+    default: pdu_monitoring
+  bronze_table:
+    description: Name (within catalog.schema) of the second-level bronze telemetry table.
+    default: bronze_pdu_telemetry
+  warehouse_id:
+    description: SQL warehouse for the app's bronze troubleshooting queries and the breach alert (looked up by name).
+    lookup:
+      warehouse: Serverless Starter Warehouse
+
+  # ------------------------------------------------------------------ refresh (generator -> pipeline -> Lakebase sync)
+  refresh_cron:
+    description: Quartz cron for the pdu-refresh job (default every 5 minutes).
+    default: "0 0/5 * * * ?"
+  refresh_timezone:
+    description: Time zone for refresh_cron.
+    default: UTC
+  refresh_pause_status:
+    description: UNPAUSED or PAUSED for the pdu-refresh schedule.
+    default: UNPAUSED
+  refresh_duration_warning_seconds:
+    description: Email a warning when a refresh run takes longer than this.
+    default: 480
+  refresh_timeout_seconds:
+    description: Hard timeout for one refresh run.
+    default: 1200
+  lakebase_sync_timeout_minutes:
+    description: Max minutes the sync task waits for the Lakebase snapshot sync.
+    default: "10"
+
+  # ------------------------------------------------------------------ synthetic data (demo only)
+  bronze_retention_days:
+    description: Days of bronze telemetry kept by the generator's retention DELETE.
+    default: "7"
+  backfill_hours:
+    description: Max hours the generator backfills when bronze is empty or behind.
+    default: "6"
+  num_racks:
+    description: Number of racks generated (the last rack uses the high-density PDU model).
+    default: "4"
+  rack_shelves:
+    description: Shelves per rack (generator layout and app grid rows).
+    default: "5"
+  rack_positions:
+    description: Positions per shelf (generator layout and app grid columns).
+    default: "5"
+
+  # ------------------------------------------------------------------ pipeline
+  watermark:
+    description: Late-data tolerance for 1-minute aggregation (Spark interval).
+    default: "1 minute"
+  status_lookback_hours:
+    description: Hours of minute stats used to compute current status and breach streaks.
+    default: "24"
+  pipeline_stale_after_minutes:
+    description: A unit is stale when its newest minute lags the fleet by more than this.
+    default: "3"
+
+  # ------------------------------------------------------------------ breach alert
+  alert_email:
+    description: Recipient for job failure / breach notifications.
+    default: ${workspace.current_user.userName}
+  breach_alert_cron:
+    description: Quartz cron for the breach alert evaluation (offset 2 min after the refresh).
+    default: "0 2/5 * * * ?"
+  breach_alert_timezone:
+    description: Time zone for breach_alert_cron.
+    default: UTC
+  breach_alert_pause_status:
+    description: UNPAUSED or PAUSED for the breach alert (each evaluation uses the SQL warehouse).
+    default: UNPAUSED
+
+  # ------------------------------------------------------------------ app
+  app_name:
+    description: Databricks App name (workspace-unique, lowercase letters, digits, hyphens).
+    default: pdu-monitor
+  app_refresh_seconds:
+    description: Monitoring page / unit status refresh interval.
+    default: "30"
+  app_breach_bronze_refresh_seconds:
+    description: Unit page bronze auto-refresh interval, only while the unit is in BREACH.
+    default: "60"
+  app_status_cache_seconds:
+    description: Cache for the Lakebase status query, shared across users.
+    default: "10"
+  app_bronze_cache_seconds:
+    description: Cache for single-unit bronze queries, shared across users.
+    default: "60"
+  app_stale_after_minutes:
+    description: App marks a unit stale when its newest reading is older than this.
+    default: "15"
+  # The app grid uses rack_shelves / rack_positions above.
+
+  # ------------------------------------------------------------------ Lakebase
+  lakebase_project:
+    description: Lakebase Postgres project id for app state and synced tables (lowercase, hyphens).
+    default: pdu-monitoring
+  lakebase_database:
+    description: Postgres database (inside the Lakebase project) used by the app.
+    default: pdu_monitoring
+  lakebase_min_cu:
+    description: Minimum compute units for the Lakebase endpoint.
+    default: 0.5
+  lakebase_max_cu:
+    description: Maximum compute units for the Lakebase endpoint.
+    default: 2
+  lakebase_suspend_timeout:
+    description: Idle time before the Lakebase endpoint suspends.
+    default: 300s

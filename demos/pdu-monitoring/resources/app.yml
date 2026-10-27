@@ -37,6 +37,21 @@ resources:
             value: pdu_latest_status_synced
           - name: LB_APP_SCHEMA
             value: pdu_app
+          # Tunables from config.yml (redeploy the app with `bundle run pdu_app` to apply).
+          - name: REFRESH_SECONDS
+            value: ${var.app_refresh_seconds}
+          - name: BREACH_BRONZE_REFRESH_SECONDS
+            value: ${var.app_breach_bronze_refresh_seconds}
+          - name: STATUS_CACHE_SECONDS
+            value: ${var.app_status_cache_seconds}
+          - name: BRONZE_CACHE_SECONDS
+            value: ${var.app_bronze_cache_seconds}
+          - name: STALE_AFTER_MINUTES
+            value: ${var.app_stale_after_minutes}
+          - name: RACK_SHELVES
+            value: ${var.rack_shelves}
+          - name: RACK_POSITIONS
+            value: ${var.rack_positions}
       permissions:
         - level: CAN_MANAGE
           user_name: ${workspace.current_user.userName}

@@ -6,6 +6,7 @@ Tick each item after a fresh deploy (or after changes to the relevant part). Com
 
 - [ ] `databricks bundle validate --strict -t dev` and `-t prod` both pass
 - [ ] `databricks bundle deploy -t dev` succeeds
+- [ ] Settings changed only in `config.yml` (or `databricks.yml` target overrides / `--var`), not in `resources/*.yml`; `bundle validate -o json` shows the expected resolved values
 - [ ] No customer names, hosts, tokens or personal IDs committed (`git grep -i` for them before pushing)
 
 ## Bronze

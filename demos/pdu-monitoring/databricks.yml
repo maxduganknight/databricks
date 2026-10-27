@@ -2,45 +2,16 @@
 # SDP pipeline + Lakebase (Postgres) + Databricks App for rack PDU telemetry.
 # No workspace hosts, user names, IDs or secrets are stored here; authenticate with the
 # Databricks CLI (profile / env vars) and override variables per workspace.
+#
+# All tunable settings are variables defined in config.yml (the single place to edit them).
+# Per-environment overrides go under targets.<target>.variables below, or --var name=value.
 
 bundle:
   name: pdu_monitoring
 
 include:
+  - config.yml
   - resources/*.yml
-
-variables:
-  catalog:
-    description: Unity Catalog catalog that holds the PDU monitoring schema.
-    default: mdk_demo_catalog
-  schema:
-    # Treated as a prerequisite (it holds the customer's existing bronze table), so it is NOT a
-    # bundle-managed resource: `bundle destroy` must never drop bronze data. The synthetic data
-    # generator creates it if missing.
-    description: Schema for bronze telemetry and pipeline outputs.
-    default: pdu_monitoring
-  bronze_table:
-    description: Name (within catalog.schema) of the second-level bronze telemetry table.
-    default: bronze_pdu_telemetry
-  warehouse_id:
-    description: SQL warehouse used by the app for bronze troubleshooting queries (looked up by name).
-    lookup:
-      warehouse: Serverless Starter Warehouse
-  lakebase_project:
-    description: Lakebase Postgres project id for app state and synced tables (lowercase, hyphens).
-    default: pdu-monitoring
-  lakebase_database:
-    description: Postgres database (inside the Lakebase project) used by the app.
-    default: pdu_monitoring
-  app_name:
-    description: Databricks App name (workspace-unique, lowercase letters, digits, hyphens).
-    default: pdu-monitor
-  alert_email:
-    description: Recipient for job failure / breach notifications.
-    default: ${workspace.current_user.userName}
-  breach_alert_pause_status:
-    description: UNPAUSED or PAUSED for the every-5-minutes breach alert (keeps the SQL warehouse warm).
-    default: UNPAUSED
 
 targets:
   dev:

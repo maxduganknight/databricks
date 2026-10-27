@@ -1,24 +1,25 @@
-# End-to-end refresh every 5 minutes: synthetic bronze -> SDP pipeline -> Lakebase snapshot sync.
+# End-to-end refresh (default every 5 minutes): synthetic bronze -> SDP pipeline -> Lakebase snapshot sync.
+# Schedule, timeouts and generator settings come from config.yml.
 # With a real bronze feed, delete the generate_telemetry task (and its depends_on below).
 resources:
   jobs:
     pdu_refresh:
       name: pdu-refresh
-      description: Every 5 min - append synthetic telemetry, update the monitoring pipeline, sync status to Lakebase.
+      description: Scheduled - append synthetic telemetry, update the monitoring pipeline, sync status to Lakebase.
       max_concurrent_runs: 1
       # If a run is still going when the next tick fires, skip the tick instead of queueing a backlog.
       queue:
         enabled: false
       schedule:
-        quartz_cron_expression: "0 0/5 * * * ?"
-        timezone_id: UTC
-        pause_status: UNPAUSED
-      timeout_seconds: 1200
+        quartz_cron_expression: ${var.refresh_cron}
+        timezone_id: ${var.refresh_timezone}
+        pause_status: ${var.refresh_pause_status}
+      timeout_seconds: ${var.refresh_timeout_seconds}
       health:
         rules:
           - metric: RUN_DURATION_SECONDS
             op: GREATER_THAN
-            value: 480
+            value: ${var.refresh_duration_warning_seconds}
       tasks:
         - task_key: generate_telemetry
           notebook_task:
@@ -27,8 +28,11 @@ resources:
               catalog: ${var.catalog}
               schema: ${var.schema}
               bronze_table: ${var.bronze_table}
-              backfill_hours: "6"
-              retention_days: "7"
+              backfill_hours: ${var.backfill_hours}
+              retention_days: ${var.bronze_retention_days}
+              num_racks: ${var.num_racks}
+              shelves: ${var.rack_shelves}
+              positions: ${var.rack_positions}
 
         - task_key: update_pipeline
           depends_on:
@@ -44,11 +48,11 @@ resources:
             notebook_path: ../src/notebooks/refresh_lakebase_sync.ipynb
             base_parameters:
               synced_table: ${var.catalog}.${var.schema}.pdu_latest_status_synced
-              timeout_minutes: "10"
+              timeout_minutes: ${var.lakebase_sync_timeout_minutes}
       email_notifications:
         on_failure:
           - ${var.alert_email}
         on_duration_warning_threshold_exceeded:
           - ${var.alert_email}
-        # A 5-minute schedule fails noisily during outages; skip mails for skipped/cancelled runs.
+        # A frequent schedule fails noisily during outages; skip mails for skipped/cancelled runs.
         no_alert_for_skipped_runs: true

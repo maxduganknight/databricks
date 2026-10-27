@@ -9,9 +9,9 @@ resources:
       display_name: PDU Monitoring (${bundle.target})
       pg_version: 17
       default_endpoint_settings:
-        autoscaling_limit_min_cu: 0.5
-        autoscaling_limit_max_cu: 2
-        suspend_timeout_duration: 300s
+        autoscaling_limit_min_cu: ${var.lakebase_min_cu}
+        autoscaling_limit_max_cu: ${var.lakebase_max_cu}
+        suspend_timeout_duration: ${var.lakebase_suspend_timeout}
 
   # Implicit branch / endpoint created with the project, adopted so their settings live in the bundle.
   postgres_branches:
@@ -26,9 +26,9 @@ resources:
       endpoint_id: primary
       parent: ${resources.postgres_branches.production.name}
       endpoint_type: ENDPOINT_TYPE_READ_WRITE
-      autoscaling_limit_min_cu: 0.5
-      autoscaling_limit_max_cu: 2
-      suspend_timeout_duration: 300s
+      autoscaling_limit_min_cu: ${var.lakebase_min_cu}
+      autoscaling_limit_max_cu: ${var.lakebase_max_cu}
+      suspend_timeout_duration: ${var.lakebase_suspend_timeout}
       replace_existing: true
 
   # Group-style Postgres role that owns the app database (not tied to any person).

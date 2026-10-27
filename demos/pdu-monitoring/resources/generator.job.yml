@@ -8,7 +8,7 @@ resources:
       max_concurrent_runs: 1
       parameters:
         - name: backfill_hours
-          default: "6"
+          default: ${var.backfill_hours}
       tasks:
         - task_key: generate_telemetry
           # No cluster spec -> runs on serverless jobs compute.
@@ -19,7 +19,10 @@ resources:
               schema: ${var.schema}
               bronze_table: ${var.bronze_table}
               backfill_hours: "{{job.parameters.backfill_hours}}"
-              retention_days: "7"
+              retention_days: ${var.bronze_retention_days}
+              num_racks: ${var.num_racks}
+              shelves: ${var.rack_shelves}
+              positions: ${var.rack_positions}
       email_notifications:
         on_failure:
           - ${var.alert_email}

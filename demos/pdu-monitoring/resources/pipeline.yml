@@ -16,9 +16,9 @@ resources:
       configuration:
         pdu.bronze_table: ${var.catalog}.${var.schema}.${var.bronze_table}
         pdu.thresholds_csv: ${workspace.file_path}/src/sql/pdu_thresholds_seed.csv
-        pdu.watermark: 1 minute
-        pdu.status_lookback_hours: "24"
-        pdu.stale_after_minutes: "3"
+        pdu.watermark: ${var.watermark}
+        pdu.status_lookback_hours: ${var.status_lookback_hours}
+        pdu.stale_after_minutes: ${var.pipeline_stale_after_minutes}
       notifications:
         - email_recipients:
             - ${var.alert_email}
