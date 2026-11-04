@@ -3,3 +3,4 @@ GLOBAL,,voltage,220,228,252,260,240 V nominal: warn outside +/-5%; breach outsid
 GLOBAL,,temperature,,,45,55,PDU inlet temperature: warn above 45 C; breach above 55 C
 MODEL,PDU-HD-32A,temperature,,,50,60,High-density PDUs are rated for higher inlet temperature
 RACK,R02,voltage,222,230,250,258,Example rack override: R02 feeder has tighter voltage tolerance
+UNIT,R03-S5-P4,temperature,,,43,46,Demo hot unit runs ~48 C; lowered breach threshold so it reliably shows BREACH
