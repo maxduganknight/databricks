@@ -13,12 +13,17 @@ pdu_minute_stats (1-min windows)  +  pdu_thresholds
         |
         v
 pdu_latest_status (1 row / PDU)  --SNAPSHOT sync-->  Lakebase: pdu_latest_status_synced
-        |                                            Lakebase: pdu_app.incident_ack / unit_notes
-        +--> SQL alert (breach email)                                 
-                                                          
+        |                                            Lakebase: pdu_app.technician_alerts / unit_notes
+        +--> SQL alert (breach email to monitoring team)
+
+ops history sync (every 5 min, after pipeline):
+  Lakebase pdu_app.technician_alerts  -->  UC ops_history.technician_alerts (Delta + CDF)
+  Lakebase pdu_app.unit_notes         -->  UC ops_history.unit_notes (Delta + CDF)
+        +--> SQL alert (technician email when alert triggered)
 
 Databricks App (Dash)  -- monitoring page reads Lakebase only
                        -- unit page reads bronze for one unit via SQL warehouse
+                       -- operator clicks "Alert technician" from unit page
 ```
 
 ## Configuration
@@ -37,6 +42,9 @@ grouped and documented; the files in `resources/` only reference `${var.<name>}`
 | `watermark` / `status_lookback_hours` / `pipeline_stale_after_minutes` | `1 minute` / `24` / `3` | Pipeline late-data tolerance, status lookback, stale rule |
 | `alert_email` | deploying user | Job failure and breach notifications |
 | `breach_alert_cron` / `breach_alert_pause_status` | `0 2/5 * * * ?` / `UNPAUSED` (`PAUSED` in dev) | Breach alert schedule |
+| `technician_email` | deploying user | Email notified when "Alert technician" is triggered |
+| `tech_alert_window_minutes` | `15` | Alert fires when a technician alert was triggered within this window |
+| `ops_history_schema` | `ops_history` | UC schema where `technician_alerts` / `unit_notes` are synced |
 | `app_refresh_seconds` / `app_breach_bronze_refresh_seconds` | `30` / `60` | App page refresh / bronze auto-refresh while in BREACH |
 | `app_status_cache_seconds` / `app_bronze_cache_seconds` / `app_stale_after_minutes` | `10` / `60` / `15` | App query caches and app-side stale rule |
 | `lakebase_min_cu` / `lakebase_max_cu` / `lakebase_suspend_timeout` | `0.5` / `2` / `300s` | Lakebase endpoint autoscaling and idle suspend |
@@ -59,9 +67,11 @@ grouped and documented; the files in `resources/` only reference `${var.<name>}`
 | `resources/lakebase.yml` | Lakebase project, branch, endpoint, database, synced table |
 | `resources/lakebase_setup.job.yml` | Applies `src/sql/lakebase/*.sql` migrations, grants the app |
 | `resources/app.yml` | Databricks App + its resources (Lakebase, warehouse, bronze `SELECT`) |
-| `resources/refresh.job.yml` | `pdu-refresh`: generator -> pipeline -> Lakebase sync (default every 5 min) |
+| `resources/refresh.job.yml` | `pdu-refresh`: generator -> pipeline -> Lakebase sync -> ops history sync (default every 5 min) |
 | `resources/breach.alert.yml` | SQL alert: email when any PDU is in BREACH |
-| `src/notebooks/` | Synthetic generator, Lakebase migrations, Lakebase sync trigger |
+| `resources/technician_alert.alert.yml` | SQL alert: email `technician_email` when "Alert technician" is triggered |
+| `src/notebooks/` | Synthetic generator, Lakebase migrations, Lakebase sync trigger, ops history sync |
+| `src/sql/lakebase/` | Postgres schema migrations applied by `pdu_lakebase_setup` |
 | `src/pipeline/` | Pipeline transformations + shared rules (`utilities/pdu_rules.py`) |
 | `src/sql/pdu_thresholds_seed.csv` | Threshold rules (source of truth) |
 | `src/app/` | Dash app (`app.py` pages/callbacks, `data.py` data access, `components.py` UI) |
@@ -76,8 +86,11 @@ grouped and documented; the files in `resources/` only reference `${var.<name>}`
 * **`pdu_latest_status`** (materialized view): newest minute per PDU over a `status_lookback_hours` lookback with
   `status` (OK / WARN / BREACH), `breached_metrics`, `warn_metrics`, `severity_score`,
   `breach_started_ts`, `breach_minutes_lookback`, `is_stale` and the resolved thresholds.
-* **Lakebase** `pdu_app.incident_ack` (ack tied to a breach episode via `breach_started_ts`) and
+* **Lakebase** `pdu_app.technician_alerts` (alert tied to a breach episode via `breach_started_ts`) and
   `pdu_app.unit_notes`, written by the app as the signed-in user's email.
+* **`ops_history` (UC Delta)** `technician_alerts` and `unit_notes` — copies of the Lakebase tables,
+  synced after each pipeline cycle by `sync_ops_lakehouse`, with Delta Change Data Feed enabled.
+  Queried by the technician SQL alert.
 
 ### Thresholds
 
@@ -95,14 +108,15 @@ republishes `pdu_thresholds`. Rules are per metric (`voltage`, `temperature`) wi
 
 ## The app
 
-* **Monitoring (`/`)**: KPIs (breach / warning / OK / stale counts, unacknowledged breaches, data
-  age), racks stacked vertically with one landscape tile per PDU (green OK, amber WARN, pulsing red
-  unacknowledged BREACH, dark red acknowledged, hatched stale), rack filter, worst-offenders list.
+* **Monitoring (`/`)**: KPIs (breach / warning / OK / stale counts, unalerted breaches, data age),
+  racks stacked vertically with one landscape tile per PDU (green OK, amber WARN, pulsing red
+  unalerted BREACH, dark red alerted, hatched stale), rack filter, worst-offenders list.
   Refreshes from Lakebase every `app_refresh_seconds`; never queries bronze.
 * **Troubleshooting (`/unit/<unit_id>`)**: unit facts and resolved thresholds, second-level voltage
   and temperature for the last 15/30/60/120 min with shaded threshold bands and breach points,
-  acknowledge breach, notes. Bronze is queried on open / window change / Refresh and auto-refreshed
-  every `app_breach_bronze_refresh_seconds` only while the unit is in BREACH (results cached
+  "Alert technician" button (writes to Lakebase, synced to UC ops_history), notes. Bronze is
+  queried on open / window change / Refresh and auto-refreshed every
+  `app_breach_bronze_refresh_seconds` only while the unit is in BREACH (results cached
   `app_bronze_cache_seconds` across users).
 
 App settings come from `config.yml` (`app_*`, `rack_shelves`, `rack_positions`) and reach the app as
@@ -137,11 +151,13 @@ CI as a service principal).
 
 * `pdu-refresh` runs on `refresh_cron` (default every 5 minutes, UTC) on serverless, takes ~3-4
   minutes, skips a tick rather than queueing if a run overruns, and emails on failure or if a run
-  exceeds `refresh_duration_warning_seconds` (default 8 minutes).
-  End-to-end freshness in the app is roughly 3-8 minutes behind bronze.
-* The breach alert evaluates on `breach_alert_cron` (default every 5 minutes) on the SQL warehouse, which keeps the warehouse from
-  auto-stopping. It is **paused in `dev`**; enable with
+  exceeds `refresh_duration_warning_seconds` (default 8 minutes). End-to-end freshness in the app
+  is roughly 3-8 minutes behind bronze.
+* The breach alert evaluates on `breach_alert_cron` (default every 5 minutes) on the SQL warehouse.
+  It is **paused in `dev`**; enable with
   `databricks bundle deploy -t dev --var breach_alert_pause_status=UNPAUSED`.
+* The technician alert evaluates on the same cadence as the breach alert and is also paused in dev.
+  Set `technician_email` in `config.yml` to point alerts at the right person.
 * Lakebase endpoint autoscales `lakebase_min_cu`-`lakebase_max_cu` (default 0.5-2 CU) and suspends
   after `lakebase_suspend_timeout` (default 5 minutes) idle.
 
@@ -165,7 +181,7 @@ UI helper tests are skipped if Dash is not installed.
 * Telemetry is synthetic; one unit runs hot (`R03-S5-P4`) and one drops out periodically
   (`R02-S3-P2`) to exercise WARN and stale states.
 * Status is minute-level and recomputed every 5 minutes; it is not a real-time alarm system.
-* Acknowledgements do not suppress the email alert, and the alert has no per-unit routing.
+* Technician alerts do not suppress the breach email alert, and neither alert has per-unit routing.
 * The app uses Flask's threaded server; use gunicorn for heavier use.
 * Units removed from the layout disappear from status after the 24 h lookback, or immediately
   after deleting their bronze rows and fully refreshing the pipeline.
