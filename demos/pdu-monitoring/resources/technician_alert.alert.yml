@@ -7,6 +7,14 @@ resources:
     pdu_technician:
       display_name: PDU technician alert
       warehouse_id: ${var.warehouse_id}
+      custom_template_format: MARKDOWN
+      custom_summary: "PDU technician alert — operator has flagged a breach for your attention"
+      custom_description: |
+        An operator has triggered a technician alert in the PDU Monitoring app.
+
+        **[Open PDU Monitoring app](${var.app_url})**
+
+        Navigate to the breached unit page to review readings, acknowledge the alert, and add notes.
       query_text: |
         SELECT count(*) AS recent_tech_alerts
         FROM ${var.catalog}.${var.ops_history_schema}.technician_alerts

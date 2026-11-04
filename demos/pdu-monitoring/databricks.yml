@@ -23,6 +23,9 @@ targets:
       app_name: pdu-monitor-${workspace.current_user.domain_friendly_name}
       # Avoid keeping the warehouse running 24/7 in dev; unpause with --var breach_alert_pause_status=UNPAUSED.
       breach_alert_pause_status: PAUSED
+      # App URL for this workspace - included in alert email bodies.
+      # Update if the app name or workspace changes (format: <app-name>-<workspace-id>.aws.databricksapps.com).
+      app_url: https://pdu-monitor-max-duganknight-7474647295259694.aws.databricksapps.com
 
   prod:
     mode: production

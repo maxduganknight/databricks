@@ -84,6 +84,11 @@ variables:
     description: UC schema where ops history tables (technician_alerts, unit_notes) are synced for analytics and alerting.
     default: ops_history
 
+  # ------------------------------------------------------------------ app URL (used in alert email bodies)
+  app_url:
+    description: Public URL of the deployed app. Set per target in databricks.yml or with --var app_url=<url>. Used in alert email bodies.
+    default: ""
+
   # ------------------------------------------------------------------ breach alert
   alert_email:
     description: Recipient for job failure / breach notifications.

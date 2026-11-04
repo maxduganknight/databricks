@@ -9,6 +9,15 @@ resources:
       # Dev mode prefixes "[dev <user>]" automatically.
       display_name: PDU breach
       warehouse_id: ${var.warehouse_id}
+      custom_template_format: MARKDOWN
+      custom_summary: "PDU breach detected — action required"
+      custom_description: |
+        One or more PDUs have crossed the breach threshold.
+
+        **[Open PDU Monitoring app](${var.app_url})**
+
+        Navigate to any red tile, review the readings, and use the **Alert technician** button
+        if on-site intervention is needed.
       query_text: |
         SELECT
           count_if(status = 'BREACH') AS breached_units,
