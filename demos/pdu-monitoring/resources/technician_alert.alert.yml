@@ -1,0 +1,30 @@
+# Email a technician when an operator clicks "Alert Technician" in the app.
+# The sync_ops_lakehouse job task writes pdu_app.technician_alerts (Lakebase) to
+# ops_history.technician_alerts (UC Delta) after each refresh cycle.
+# This alert fires when a new entry appears within the last tech_alert_window_minutes.
+resources:
+  alerts:
+    pdu_technician:
+      display_name: PDU technician alert
+      warehouse_id: ${var.warehouse_id}
+      query_text: |
+        SELECT count(*) AS recent_tech_alerts
+        FROM ${var.catalog}.${var.ops_history_schema}.technician_alerts
+        WHERE alerted_at > current_timestamp() - INTERVAL ${var.tech_alert_window_minutes} MINUTES
+      evaluation:
+        comparison_operator: GREATER_THAN
+        source:
+          name: recent_tech_alerts
+          display: recent_tech_alerts
+        threshold:
+          value:
+            double_value: 0
+        notification:
+          notify_on_ok: false
+          subscriptions:
+            - user_email: ${var.technician_email}
+      schedule:
+        # Run on the same cadence as the breach alert; paused in dev by default.
+        pause_status: ${var.breach_alert_pause_status}
+        quartz_cron_schedule: ${var.breach_alert_cron}
+        timezone_id: ${var.breach_alert_timezone}

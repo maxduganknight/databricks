@@ -1,4 +1,5 @@
-# End-to-end refresh (default every 5 minutes): synthetic bronze -> SDP pipeline -> Lakebase snapshot sync.
+# End-to-end refresh (default every 5 minutes):
+#   synthetic bronze -> SDP pipeline -> Lakebase snapshot sync -> ops history sync to Lakehouse.
 # Schedule, timeouts and generator settings come from config.yml.
 # With a real bronze feed, delete the generate_telemetry task (and its depends_on below).
 resources:
@@ -49,6 +50,17 @@ resources:
             base_parameters:
               synced_table: ${var.catalog}.${var.schema}.pdu_latest_status_synced
               timeout_minutes: ${var.lakebase_sync_timeout_minutes}
+
+        - task_key: sync_ops_lakehouse
+          depends_on:
+            - task_key: sync_lakebase
+          notebook_task:
+            notebook_path: ../src/notebooks/sync_ops_to_lakehouse.ipynb
+            base_parameters:
+              catalog: ${var.catalog}
+              ops_history_schema: ${var.ops_history_schema}
+              lakebase_project: ${var.lakebase_project}
+              lakebase_database: ${var.lakebase_database}
       email_notifications:
         on_failure:
           - ${var.alert_email}

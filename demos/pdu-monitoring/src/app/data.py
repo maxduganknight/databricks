@@ -1,6 +1,6 @@
 """Data access for the app.
 
-* Lakebase (cheap, polled): synced pdu_latest_status + operator-state tables (acks, notes).
+* Lakebase (cheap, polled): synced pdu_latest_status + operator-state tables (technician_alerts, notes).
 * SQL warehouse (on demand only): second-level bronze for ONE unit over a short window, cached.
 
 All access uses the app's service principal. Identifiers come from env vars set by the bundle and are
@@ -78,22 +78,22 @@ _cache = TTLCache()
 _STATUS_SQL = sql.SQL(
     """
     SELECT s.*,
-           a.acknowledged_by AS ack_by, a.acknowledged_at AS ack_at, a.note AS ack_note,
-           (s.status = 'BREACH' AND a.ack_id IS NULL) AS unacked_breach
+           a.alerted_by, a.alerted_at, a.note AS alert_note,
+           (s.status = 'BREACH' AND a.alert_id IS NULL) AS unalerted_breach
     FROM {synced} s
     LEFT JOIN LATERAL (
-        SELECT ack_id, acknowledged_by, acknowledged_at, note
-        FROM {acks} x
+        SELECT alert_id, alerted_by, alerted_at, note
+        FROM {alerts} x
         WHERE x.unit_id = s.unit_id
           AND x.breach_started_ts IS NOT DISTINCT FROM s.breach_started_ts
-        ORDER BY x.acknowledged_at DESC
+        ORDER BY x.alerted_at DESC
         LIMIT 1
     ) a ON s.status = 'BREACH'
     ORDER BY s.rack_id, s.shelf DESC, s.position
     """
 ).format(
     synced=sql.Identifier(db.SYNCED_SCHEMA, db.SYNCED_TABLE),
-    acks=sql.Identifier(db.APP_SCHEMA, "incident_ack"),
+    alerts=sql.Identifier(db.APP_SCHEMA, "technician_alerts"),
 )
 
 
@@ -109,7 +109,7 @@ def _load_status() -> pd.DataFrame:
 
 
 def latest_status() -> pd.DataFrame:
-    """All units with status + current-breach acknowledgement (cached a few seconds across sessions)."""
+    """All units with status + current-breach technician alert state (cached a few seconds across sessions)."""
     df, _ = _cache.get_or_load("status", STATUS_TTL_S, _load_status)
     return df
 
@@ -133,11 +133,11 @@ def racks() -> list:
     return sorted(df["rack_id"].dropna().unique().tolist()) if not df.empty else []
 
 
-def acks(unit_id: str, limit: int = 10) -> list:
+def alerts(unit_id: str, limit: int = 10) -> list:
     q = sql.SQL(
-        "SELECT acknowledged_by, acknowledged_at, breach_started_ts, note FROM {} "
-        "WHERE unit_id = %s ORDER BY acknowledged_at DESC LIMIT %s"
-    ).format(sql.Identifier(db.APP_SCHEMA, "incident_ack"))
+        "SELECT alerted_by, alerted_at, breach_started_ts, note FROM {} "
+        "WHERE unit_id = %s ORDER BY alerted_at DESC LIMIT %s"
+    ).format(sql.Identifier(db.APP_SCHEMA, "technician_alerts"))
     return db.fetch_all(q, (unit_id, limit))
 
 
@@ -149,15 +149,15 @@ def notes(unit_id: str, limit: int = 20) -> list:
 
 
 # --------------------------------------------------------------------------- Lakebase writes
-def add_ack(unit_id: str, breach_started_ts, acknowledged_by: str, note: Optional[str]) -> None:
+def add_alert(unit_id: str, breach_started_ts, alerted_by: str, note: Optional[str]) -> None:
     if not valid_unit_id(unit_id):
         raise ValueError("invalid unit id")
     note = (note or "").strip()[:MAX_NOTE_CHARS] or None
     q = sql.SQL(
-        "INSERT INTO {} (unit_id, breach_started_ts, acknowledged_by, note) VALUES (%s, %s, %s, %s)"
-    ).format(sql.Identifier(db.APP_SCHEMA, "incident_ack"))
-    db.execute(q, (unit_id, breach_started_ts, acknowledged_by, note))
-    _cache.clear()  # status view shows the ack immediately
+        "INSERT INTO {} (unit_id, breach_started_ts, alerted_by, note) VALUES (%s, %s, %s, %s)"
+    ).format(sql.Identifier(db.APP_SCHEMA, "technician_alerts"))
+    db.execute(q, (unit_id, breach_started_ts, alerted_by, note))
+    _cache.clear()  # status view shows the alert immediately
 
 
 def add_note(unit_id: str, author: str, note: str) -> None:

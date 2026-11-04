@@ -77,10 +77,10 @@ def _kpi(title, value, color=None, sub=None):
 
 def kpi_row(df: pd.DataFrame):
     counts = df["status"].value_counts()
-    unacked = int(df["unacked_breach"].fillna(False).sum())
+    unacked = int(df["unalerted_breach"].fillna(False).sum())
     return dbc.Row(
         [
-            _kpi("Units in breach", int(counts.get("BREACH", 0)), RED, f"{unacked} unacknowledged"),
+            _kpi("Units in breach", int(counts.get("BREACH", 0)), RED, f"{unacked} unalerted"),
             _kpi("Warning", int(counts.get("WARN", 0)), AMBER),
             _kpi("OK", int(counts.get("OK", 0)), GREEN, f"of {len(df)} units"),
             _kpi("Stale units", int(df["is_stale"].fillna(False).sum()), GREY, "no recent minute stats"),
@@ -97,7 +97,7 @@ def _tile(r: dict):
     classes = ["tile", f"tile-{status.lower()}"]
     if r.get("is_stale"):
         classes.append("tile-stale")
-    if status == "BREACH" and not r.get("unacked_breach"):
+    if status == "BREACH" and not r.get("unalerted_breach"):
         classes.append("tile-acked")
     tooltip = (
         f"{r['unit_id']} ({r['unit_model']}) - {status}"
@@ -105,10 +105,10 @@ def _tile(r: dict):
         + f"\nVoltage {fmt(r['voltage_min'])}-{fmt(r['voltage_max'])} V, temp max {fmt(r['temperature_max'])} C"
         + (f"\nBreached: {metrics_text(r['breached_metrics'])}" if r.get("breached_metrics") else "")
         + (f"\nWarning: {metrics_text(r['warn_metrics'])}" if r.get("warn_metrics") else "")
-        + (f"\nAcknowledged by {r['ack_by']}" if status == "BREACH" and r.get("ack_by") else "")
+        + (f"\nTech alerted by {r['alerted_by']}" if status == "BREACH" and r.get("alerted_by") else "")
         + f"\nLast reading {fmt_ts(r['last_event_ts'])}"
     )
-    flag = "ACK" if "tile-acked" in classes else ("STALE" if r.get("is_stale") else "")
+    flag = "ALT" if "tile-acked" in classes else ("STALE" if r.get("is_stale") else "")
     return dcc.Link(
         [
             html.Span(f"S{r['shelf']}-P{r['position']}", className="tile-id"),
@@ -165,8 +165,8 @@ def rack_grid(df: pd.DataFrame, shelves: int, positions: int):
 def legend():
     item = lambda cls, text: html.Span([html.Span(className=f"legend-swatch {cls}"), text], className="me-3")
     return html.Div(
-        [item("tile-ok", "OK"), item("tile-warn", "Warning"), item("tile-breach", "Breach (unacknowledged)"),
-         item("tile-breach tile-acked", "Breach (acknowledged)"), item("tile-ok tile-stale", "Stale data")],
+        [item("tile-ok", "OK"), item("tile-warn", "Warning"), item("tile-breach", "Breach (unalerted)"),
+     item("tile-breach tile-acked", "Breach (tech alerted)"), item("tile-ok tile-stale", "Stale data")],
         className="small text-muted mb-2",
     )
 
@@ -181,9 +181,9 @@ def offenders_table(df: pd.DataFrame, limit: int = 10):
     rows = []
     for r in d.to_dict("records"):
         issue = metrics_text(r["breached_metrics"]) or metrics_text(r["warn_metrics"]) or ("stale" if r["is_stale"] else "recovered")
-        ack = ""
+        tech = ""
         if r["status"] == "BREACH":
-            ack = "acked" if not r["unacked_breach"] else "open"
+            tech = "alerted" if not r["unalerted_breach"] else "open"
         rows.append(
             html.Tr(
                 [
@@ -192,11 +192,11 @@ def offenders_table(df: pd.DataFrame, limit: int = 10):
                     html.Td(issue),
                     html.Td(fmt(r["severity_score"], 2)),
                     html.Td(int(r["breach_minutes_lookback"] or 0)),
-                    html.Td(ack),
+                    html.Td(tech),
                 ]
             )
         )
-    head = html.Thead(html.Tr([html.Th(h) for h in ("Unit", "Status", "Issue", "Severity", "Breach min (24h)", "Ack")]))
+    head = html.Thead(html.Tr([html.Th(h) for h in ("Unit", "Status", "Issue", "Severity", "Breach min (24h)", "Tech alert")]))
     return dbc.Table([head, html.Tbody(rows)], size="sm", hover=True, className="offenders")
 
 
@@ -253,8 +253,8 @@ def history_list(items: list, kind: str):
         return html.Div("None yet.", className="text-muted small")
     out = []
     for i in items:
-        if kind == "ack":
-            head = f"{i['acknowledged_by']} - {fmt_ts(i['acknowledged_at'])}"
+        if kind == "alert":
+            head = f"{i['alerted_by']} - {fmt_ts(i['alerted_at'])}"
             sub = f"breach since {fmt_ts(i['breach_started_ts'])}"
             body = i["note"]
         else:

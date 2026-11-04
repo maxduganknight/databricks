@@ -3,7 +3,7 @@
 Pages
 * /                 rack grid + KPIs + worst offenders, refreshed from Lakebase every REFRESH_SECONDS.
 * /unit/<unit_id>   troubleshooting: second-level bronze for that unit only (SQL warehouse, cached),
-                    threshold bands, acknowledge breach, unit notes (Lakebase).
+                    threshold bands, alert technician, unit notes (Lakebase).
 
 Bronze is never queried by the monitoring page; on the unit page it is queried on open, on window
 change / Refresh, and auto-refreshed only while the unit is in BREACH.
@@ -174,17 +174,17 @@ def unit_layout(unit_id: str):
                     dbc.Col(
                         dbc.Card(
                             [
-                                dbc.CardHeader("Acknowledge breach"),
+                                dbc.CardHeader("Alert technician"),
                                 dbc.CardBody(
                                     [
-                                        html.Div(id="ack-state", className="small mb-2"),
-                                        dbc.Textarea(id="ack-note", placeholder="Optional note (cause, ticket, action taken)",
+                                        html.Div(id="alert-state", className="small mb-2"),
+                                        dbc.Textarea(id="alert-note", placeholder="Optional note (description, urgency, ticket)",
                                                      maxLength=data.MAX_NOTE_CHARS, rows=2, className="mb-2"),
-                                        dbc.Button("Acknowledge", id="ack-btn", color="danger", size="sm", disabled=True),
-                                        html.Div(id="ack-msg", className="small mt-2"),
+                                        dbc.Button("Alert technician", id="alert-btn", color="danger", size="sm", disabled=True),
+                                        html.Div(id="alert-msg", className="small mt-2"),
                                         html.Hr(),
-                                        html.Div("Acknowledgement history", className="fw-semibold small mb-1"),
-                                        html.Div(id="ack-history"),
+                                        html.Div("Alert history", className="fw-semibold small mb-1"),
+                                        html.Div(id="alert-history"),
                                     ]
                                 ),
                             ]
@@ -244,8 +244,8 @@ def _header(s: dict):
 @app.callback(
     Output("ts-header", "children"),
     Output("ts-bronze-tick", "disabled"),
-    Output("ack-btn", "disabled"),
-    Output("ack-state", "children"),
+    Output("alert-btn", "disabled"),
+    Output("alert-state", "children"),
     Input("ts-unit", "data"),
     Input("ts-status-tick", "n_intervals"),
     Input("ts-ops-version", "data"),
@@ -259,12 +259,12 @@ def refresh_unit_status(unit_id, _tick, _ops):
         return dbc.Alert(f"Unknown unit {unit_id}", color="warning"), True, True, ""
     in_breach = s["status"] == "BREACH"
     if not in_breach:
-        state = "Unit is not in breach - nothing to acknowledge."
-    elif s["unacked_breach"]:
-        state = f"Open breach since {ui.fmt_ts(s['breach_started_ts'])} - not yet acknowledged."
+        state = "Unit is not in breach - no technician alert needed."
+    elif s["unalerted_breach"]:
+        state = f"Open breach since {ui.fmt_ts(s['breach_started_ts'])} - technician not yet alerted."
     else:
-        state = f"Acknowledged by {s['ack_by']} at {ui.fmt_ts(s['ack_at'])}."
-    return _header(s), not in_breach, not (in_breach and s["unacked_breach"]), state
+        state = f"Technician alerted by {s['alerted_by']} at {ui.fmt_ts(s['alerted_at'])}."
+    return _header(s), not in_breach, not (in_breach and s["unalerted_breach"]), state
 
 
 @app.callback(
@@ -292,24 +292,24 @@ def refresh_unit_charts(unit_id, minutes, _clicks, _tick):
 
 
 @app.callback(
-    Output("ack-msg", "children"),
-    Output("ack-note", "value"),
+    Output("alert-msg", "children"),
+    Output("alert-note", "value"),
     Output("ts-ops-version", "data", allow_duplicate=True),
-    Input("ack-btn", "n_clicks"),
+    Input("alert-btn", "n_clicks"),
     State("ts-unit", "data"),
-    State("ack-note", "value"),
+    State("alert-note", "value"),
     State("ts-ops-version", "data"),
     prevent_initial_call=True,
 )
-def acknowledge(_clicks, unit_id, note, version):
+def alert_technician(_clicks, unit_id, note, version):
     try:
         s = data.unit_status(unit_id)
         if not s or s["status"] != "BREACH":
             return dbc.Alert("Unit is no longer in breach.", color="info"), no_update, (version or 0) + 1
-        data.add_ack(unit_id, s["breach_started_ts"], operator(), note)
+        data.add_alert(unit_id, s["breach_started_ts"], operator(), note)
     except Exception as e:  # noqa: BLE001
-        return error_alert("Saving acknowledgement", e), no_update, no_update
-    return dbc.Alert("Breach acknowledged.", color="success"), "", (version or 0) + 1
+        return error_alert("Sending technician alert", e), no_update, no_update
+    return dbc.Alert("Technician alerted.", color="success"), "", (version or 0) + 1
 
 
 @app.callback(
@@ -333,14 +333,14 @@ def add_note(_clicks, unit_id, text, version):
 
 
 @app.callback(
-    Output("ack-history", "children"),
+    Output("alert-history", "children"),
     Output("note-history", "children"),
     Input("ts-unit", "data"),
     Input("ts-ops-version", "data"),
 )
 def refresh_history(unit_id, _version):
     try:
-        return ui.history_list(data.acks(unit_id), "ack"), ui.history_list(data.notes(unit_id), "note")
+        return ui.history_list(data.alerts(unit_id), "alert"), ui.history_list(data.notes(unit_id), "note")
     except Exception as e:  # noqa: BLE001
         alert = error_alert("Loading history", e)
         return alert, alert

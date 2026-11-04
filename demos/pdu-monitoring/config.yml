@@ -79,6 +79,11 @@ variables:
     description: A unit is stale when its newest minute lags the fleet by more than this.
     default: "3"
 
+  # ------------------------------------------------------------------ ops history (technician alerts + unit notes → UC Delta)
+  ops_history_schema:
+    description: UC schema where ops history tables (technician_alerts, unit_notes) are synced for analytics and alerting.
+    default: ops_history
+
   # ------------------------------------------------------------------ breach alert
   alert_email:
     description: Recipient for job failure / breach notifications.
@@ -92,6 +97,14 @@ variables:
   breach_alert_pause_status:
     description: UNPAUSED or PAUSED for the breach alert (each evaluation uses the SQL warehouse).
     default: UNPAUSED
+
+  # ------------------------------------------------------------------ technician alert
+  technician_email:
+    description: Email address to notify when an operator clicks "Alert Technician" in the app.
+    default: ${workspace.current_user.userName}
+  tech_alert_window_minutes:
+    description: Technician SQL alert fires when an alert was triggered within this many minutes (must cover one full refresh cycle).
+    default: "15"
 
   # ------------------------------------------------------------------ app
   app_name:

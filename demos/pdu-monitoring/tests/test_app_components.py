@@ -16,7 +16,7 @@ def _unit(rack, shelf, pos, status="OK", **kw):
     row = dict(
         unit_id=f"{rack}-S{shelf}-P{pos}", rack_id=rack, unit_model="PDU-STD-24A", shelf=shelf, position=pos,
         status=status, breached_metrics=[], warn_metrics=[], severity_score=0.0, breach_minutes_lookback=0,
-        is_stale=False, unacked_breach=False, ack_by=None, voltage_min=238.0, voltage_max=242.0,
+        is_stale=False, unalerted_breach=False, alerted_by=None, voltage_min=238.0, voltage_max=242.0,
         temperature_max=33.0, last_event_ts=NOW,
     )
     row.update(kw)
@@ -29,7 +29,7 @@ def _tiles(component):
 
 def test_rack_grid_fixed_layout_stacks_racks_and_fills_empty_slots():
     df = pd.DataFrame([_unit("R01", s, p) for s in range(1, 6) for p in range(1, 6) if (s, p) != (3, 3)]
-                      + [_unit("R02", 1, 1, "BREACH", unacked_breach=True)])
+                      + [_unit("R02", 1, 1, "BREACH", unalerted_breach=True)])
     grid = ui.rack_grid(df, shelves=5, positions=5)
     assert len(grid.children) == 2  # one stacked card per rack
     r1 = grid.children[0].children[1].children
@@ -44,10 +44,10 @@ def test_rack_grid_fixed_layout_stacks_racks_and_fills_empty_slots():
 
 
 def test_acked_and_stale_tiles():
-    df = pd.DataFrame([_unit("R01", 1, 1, "BREACH", unacked_breach=False, ack_by="op@example.com"),
+    df = pd.DataFrame([_unit("R01", 1, 1, "BREACH", unalerted_breach=False, alerted_by="op@example.com"),
                        _unit("R01", 1, 2, is_stale=True)])
     tiles = [t for t in _tiles(ui.rack_grid(df, 1, 2).children[0].children[1].children)]
-    assert "tile-acked" in tiles[0].className and "ACK" in tiles[0].children[-1].children
+    assert "tile-acked" in tiles[0].className and "ALT" in tiles[0].children[-1].children
     assert "tile-stale" in tiles[1].className
 
 
@@ -70,7 +70,7 @@ def test_metric_figure_empty_window():
 def test_offenders_ranks_breach_first():
     df = pd.DataFrame([
         _unit("R01", 1, 1, "WARN", severity_score=0.9, warn_metrics=["temperature_high"]),
-        _unit("R01", 1, 2, "BREACH", severity_score=0.2, breached_metrics=["voltage_low"], unacked_breach=True),
+        _unit("R01", 1, 2, "BREACH", severity_score=0.2, breached_metrics=["voltage_low"], unalerted_breach=True),
         _unit("R01", 1, 3),
     ])
     rows = ui.offenders_table(df).children[1].children
