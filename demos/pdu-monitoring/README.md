@@ -45,14 +45,15 @@ grouped and documented; the files in `resources/` only reference `${var.<name>}`
 | `technician_email` | deploying user | Email notified when "Alert technician" is triggered |
 | `tech_alert_window_minutes` | `15` | Alert fires when a technician alert was triggered within this window |
 | `ops_history_schema` | `ops_history` | UC schema where `technician_alerts` / `unit_notes` are synced |
+| `app_url` | `""` (empty) | Public URL of the deployed app — embedded as a link in both alert emails. Set per target in `databricks.yml` (dev already sets it to the deployed URL). |
 | `app_refresh_seconds` / `app_breach_bronze_refresh_seconds` | `30` / `60` | App page refresh / bronze auto-refresh while in BREACH |
 | `app_status_cache_seconds` / `app_bronze_cache_seconds` / `app_stale_after_minutes` | `10` / `60` / `15` | App query caches and app-side stale rule |
 | `lakebase_min_cu` / `lakebase_max_cu` / `lakebase_suspend_timeout` | `0.5` / `2` / `300s` | Lakebase endpoint autoscaling and idle suspend |
 
 * **Thresholds** are not in `config.yml`: edit `src/sql/pdu_thresholds_seed.csv` (see below).
 * **Per-environment overrides** go in `databricks.yml` under `targets.<target>.variables` (dev already
-  overrides `lakebase_project`, `app_name` and `breach_alert_pause_status`), or on the command line
-  with `--var name=value`.
+  overrides `lakebase_project`, `app_name`, `breach_alert_pause_status` and `app_url`), or on the
+  command line with `--var name=value`.
 * Changes take effect on `databricks bundle deploy -t <target>`; for app settings also run
   `databricks bundle run pdu_app -t <target>` so the app restarts with the new environment.
 
@@ -105,6 +106,7 @@ republishes `pdu_thresholds`. Rules are per metric (`voltage`, `temperature`) wi
 | GLOBAL | temperature | | | 45 | 55 |
 | MODEL `PDU-HD-32A` | temperature | | | 50 | 60 |
 | RACK `R02` | voltage | 222 | 230 | 250 | 258 |
+| UNIT `R03-S5-P4` | temperature | | | 43 | 46 |
 
 ## The app
 
@@ -178,8 +180,8 @@ UI helper tests are skipped if Dash is not installed.
 
 ## Known limitations (prototype)
 
-* Telemetry is synthetic; one unit runs hot (`R03-S5-P4`) and one drops out periodically
-  (`R02-S3-P2`) to exercise WARN and stale states.
+* Telemetry is synthetic; one unit runs hot (`R03-S5-P4`, ~48 °C, UNIT breach threshold lowered to
+  46 °C for demo) and one drops out periodically (`R02-S3-P2`) to exercise WARN and stale states.
 * Status is minute-level and recomputed every 5 minutes; it is not a real-time alarm system.
 * Technician alerts do not suppress the breach email alert, and neither alert has per-unit routing.
 * The app uses Flask's threaded server; use gunicorn for heavier use.
