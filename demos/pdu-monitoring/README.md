@@ -1,22 +1,24 @@
 # PDU Monitoring (prototype)
 
-Rack PDU monitoring for a data center on Databricks, packaged as one Declarative Automation Bundle:
+Rack PDU monitoring pipeline and application, packaged as one Declarative Automation Bundle:
 second-level telemetry in Delta, a Lakeflow Spark Declarative Pipeline that classifies every PDU
 against configurable thresholds, a Lakebase (Postgres) serving layer, and a Dash Databricks App for
 operators.
 
 ```
-bronze_pdu_telemetry (Delta, 1 row / PDU / second)
+bronze_pdu_telemetry (1 row / PDU / second)
         |  SDP pipeline (triggered every 5 min)
         v
-pdu_minute_stats (ST, 1-min windows)  +  pdu_thresholds (MV, from CSV)
+pdu_minute_stats (1-min windows)  +  pdu_thresholds
+        |
         v
-pdu_latest_status (MV, 1 row / PDU)  --SNAPSHOT sync-->  Lakebase: pdu_latest_status_synced
-        |                                                    Lakebase: pdu_app.incident_ack / unit_notes
-        +--> SQL alert (breach email)                                 ^
-                                                                      |
-                     Databricks App (Dash)  -- monitoring page reads Lakebase only
-                                            -- unit page reads bronze for ONE unit via SQL warehouse
+pdu_latest_status (1 row / PDU)  --SNAPSHOT sync-->  Lakebase: pdu_latest_status_synced
+        |                                            Lakebase: pdu_app.incident_ack / unit_notes
+        +--> SQL alert (breach email)                                 
+                                                          
+
+Databricks App (Dash)  -- monitoring page reads Lakebase only
+                       -- unit page reads bronze for one unit via SQL warehouse
 ```
 
 ## Configuration
@@ -68,14 +70,9 @@ grouped and documented; the files in `resources/` only reference `${var.<name>}`
 
 ## Data model
 
-* **Layout**: by default 4 racks x 5 shelves x 5 positions = 100 PDUs, `unit_id = Rxx-Sy-Pz`. The
-  last rack holds `PDU-HD-32A` units, the rest are `PDU-STD-24A`. The app draws `rack_shelves` x
-  `rack_positions` per rack and hides units outside that layout.
 * **Bronze** `<catalog>.<schema>.bronze_pdu_telemetry`: voltage, current, power, temperature,
-  humidity per second, clustered by `(unit_id, event_ts)`, `bronze_retention_days` retention. A real deployment
-  points `var.bronze_table` at its existing table and removes the generator task.
-* **`pdu_minute_stats`** (streaming table): 1-minute tumbling windows per PDU, `watermark` late-data tolerance,
-  implausible readings (null, sensor faults such as -40 C) excluded via expectations.
+  humidity per second, clustered by `(unit_id, event_ts)`, `bronze_retention_days` retention. 
+* **`pdu_minute_stats`** (streaming table): 1-minute tumbling windows per PDU, `watermark` late-data tolerance
 * **`pdu_latest_status`** (materialized view): newest minute per PDU over a `status_lookback_hours` lookback with
   `status` (OK / WARN / BREACH), `breached_metrics`, `warn_metrics`, `severity_score`,
   `breach_started_ts`, `breach_minutes_lookback`, `is_stale` and the resolved thresholds.
@@ -141,8 +138,7 @@ CI as a service principal).
 * `pdu-refresh` runs on `refresh_cron` (default every 5 minutes, UTC) on serverless, takes ~3-4
   minutes, skips a tick rather than queueing if a run overruns, and emails on failure or if a run
   exceeds `refresh_duration_warning_seconds` (default 8 minutes).
-  End-to-end freshness in the app is roughly 3-8 minutes behind bronze. Pause the job in the UI
-  when not demoing.
+  End-to-end freshness in the app is roughly 3-8 minutes behind bronze.
 * The breach alert evaluates on `breach_alert_cron` (default every 5 minutes) on the SQL warehouse, which keeps the warehouse from
   auto-stopping. It is **paused in `dev`**; enable with
   `databricks bundle deploy -t dev --var breach_alert_pause_status=UNPAUSED`.
