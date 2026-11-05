@@ -5,6 +5,8 @@ resources:
       name: ${var.app_name}
       description: PDU rack monitoring and troubleshooting (Lakebase + SQL warehouse).
       source_code_path: ../src/app
+      user_api_scopes:
+        - dashboards.genie
       resources:
         - name: lakebase
           description: App database (synced pdu_latest_status + operator-state tables)
