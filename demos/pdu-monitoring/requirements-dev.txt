@@ -1,0 +1,7 @@
+# Local development and tests (the app's runtime deps are in src/app/requirements.txt).
+pytest>=8
+# Either local Spark ...
+pyspark>=3.5
+# ... or run Spark tests on serverless via Databricks Connect (then uninstall pyspark):
+# databricks-connect>=15.4
+-r src/app/requirements.txt

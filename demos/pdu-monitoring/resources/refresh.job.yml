@@ -1,0 +1,70 @@
+# End-to-end refresh (default every 5 minutes):
+#   synthetic bronze -> SDP pipeline -> Lakebase snapshot sync -> ops history sync to Lakehouse.
+# Schedule, timeouts and generator settings come from config.yml.
+# With a real bronze feed, delete the generate_telemetry task (and its depends_on below).
+resources:
+  jobs:
+    pdu_refresh:
+      name: pdu-refresh
+      description: Scheduled - append synthetic telemetry, update the monitoring pipeline, sync status to Lakebase.
+      max_concurrent_runs: 1
+      # If a run is still going when the next tick fires, skip the tick instead of queueing a backlog.
+      queue:
+        enabled: false
+      schedule:
+        quartz_cron_expression: ${var.refresh_cron}
+        timezone_id: ${var.refresh_timezone}
+        pause_status: ${var.refresh_pause_status}
+      timeout_seconds: ${var.refresh_timeout_seconds}
+      health:
+        rules:
+          - metric: RUN_DURATION_SECONDS
+            op: GREATER_THAN
+            value: ${var.refresh_duration_warning_seconds}
+      tasks:
+        - task_key: generate_telemetry
+          notebook_task:
+            notebook_path: ../src/notebooks/generate_synthetic_telemetry.ipynb
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              bronze_table: ${var.bronze_table}
+              backfill_hours: ${var.backfill_hours}
+              retention_days: ${var.bronze_retention_days}
+              num_racks: ${var.num_racks}
+              shelves: ${var.rack_shelves}
+              positions: ${var.rack_positions}
+
+        - task_key: update_pipeline
+          depends_on:
+            - task_key: generate_telemetry
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.pdu_monitoring.id}
+            full_refresh: false
+
+        - task_key: sync_lakebase
+          depends_on:
+            - task_key: update_pipeline
+          notebook_task:
+            notebook_path: ../src/notebooks/refresh_lakebase_sync.ipynb
+            base_parameters:
+              synced_table: ${var.catalog}.${var.schema}.pdu_latest_status_synced
+              timeout_minutes: ${var.lakebase_sync_timeout_minutes}
+
+        - task_key: sync_ops_lakehouse
+          depends_on:
+            - task_key: sync_lakebase
+          notebook_task:
+            notebook_path: ../src/notebooks/sync_ops_to_lakehouse.ipynb
+            base_parameters:
+              catalog: ${var.catalog}
+              ops_history_schema: ${var.ops_history_schema}
+              lakebase_project: ${var.lakebase_project}
+              lakebase_database: ${var.lakebase_database}
+      email_notifications:
+        on_failure:
+          - ${var.alert_email}
+        on_duration_warning_threshold_exceeded:
+          - ${var.alert_email}
+        # A frequent schedule fails noisily during outages; skip mails for skipped/cancelled runs.
+        no_alert_for_skipped_runs: true

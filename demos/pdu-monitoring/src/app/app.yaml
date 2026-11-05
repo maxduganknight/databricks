@@ -1,0 +1,6 @@
+# Runtime command for the Databricks App. Environment variables (catalog, schema, table names,
+# warehouse, Lakebase endpoint) are set from bundle variables in resources/app.yml (config.env),
+# which overrides any env defined here.
+command:
+  - python
+  - app.py

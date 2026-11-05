@@ -1,0 +1,35 @@
+# PDU Monitoring prototype - Declarative Automation Bundle
+# SDP pipeline + Lakebase (Postgres) + Databricks App for rack PDU telemetry.
+# No workspace hosts, user names, IDs or secrets are stored here; authenticate with the
+# Databricks CLI (profile / env vars) and override variables per workspace.
+#
+# All tunable settings are variables defined in config.yml (the single place to edit them).
+# Per-environment overrides go under targets.<target>.variables below, or --var name=value.
+
+bundle:
+  name: pdu_monitoring
+
+include:
+  - config.yml
+  - resources/*.yml
+
+targets:
+  dev:
+    default: true
+    mode: development
+    variables:
+      # Per-developer Lakebase project and app name so dev never collides with prod.
+      lakebase_project: pdu-monitoring-dev
+      app_name: pdu-monitor-${workspace.current_user.domain_friendly_name}
+      # Avoid keeping the warehouse running 24/7 in dev; unpause with --var breach_alert_pause_status=UNPAUSED.
+      breach_alert_pause_status: PAUSED
+      # App URL for this workspace - included in alert email bodies.
+      # Update if the app name or workspace changes (format: <app-name>-<workspace-id>.aws.databricksapps.com).
+      app_url: https://pdu-monitor-max-duganknight-7474647295259694.aws.databricksapps.com
+
+  prod:
+    mode: production
+    workspace:
+      # Deploy to the deploying identity's folder (ideally a CI service principal), not /Shared.
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    # Override per workspace, e.g. databricks bundle deploy -t prod --var catalog=<catalog>
