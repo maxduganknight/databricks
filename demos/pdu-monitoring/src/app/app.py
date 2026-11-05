@@ -14,11 +14,12 @@ import os
 import re
 
 import dash_bootstrap_components as dbc
-from dash import Dash, Input, Output, State, dcc, html, no_update
+from dash import Dash, Input, Output, State, ctx, dcc, html, no_update
 from flask import has_request_context, request
 
 import components as ui
 import data
+import genie_chat
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("pdu-monitor")
@@ -57,7 +58,8 @@ app.layout = html.Div(
             dbc.Container(
                 [
                     dcc.Link(dbc.NavbarBrand("PDU Monitoring"), href="/", className="text-decoration-none"),
-                    html.Small(id="nav-user", className="text-light"),
+                    dcc.Link("Ask Genie", href="/genie", className="text-light small ms-3"),
+                    html.Small(id="nav-user", className="text-light ms-auto"),
                 ],
                 fluid=True,
             ),
@@ -73,7 +75,12 @@ app.layout = html.Div(
 @app.callback(Output("page", "children"), Output("nav-user", "children"), Input("url", "pathname"))
 def route(pathname):
     m = UNIT_PATH_RE.match(pathname or "")
-    page = unit_layout(m.group(1)) if m else monitor_layout()
+    if m:
+        page = unit_layout(m.group(1))
+    elif (pathname or "").rstrip("/") == "/genie":
+        page = genie_layout()
+    else:
+        page = monitor_layout()
     return page, f"Signed in as {operator()}"
 
 
@@ -344,6 +351,119 @@ def refresh_history(unit_id, _version):
     except Exception as e:  # noqa: BLE001
         alert = error_alert("Loading history", e)
         return alert, alert
+
+
+# =========================================================================== Genie chat page
+GENIE_SUGGESTIONS = [
+    "Which units are currently in BREACH and for how long?",
+    "Which rack has the highest average temperature right now?",
+    "Show me breach history for all units over the last 24 hours.",
+    "Are any units approaching their voltage warning thresholds?",
+]
+
+
+def genie_layout():
+    return html.Div(
+        [
+            dcc.Store(id="genie-conv-id", data=None),
+            dcc.Link("← Back to racks", href="/", className="small"),
+            html.H5("PDU Monitoring AI Assistant", className="mt-2 mb-1"),
+            html.P(
+                "Ask follow-up questions about your PDU fleet. "
+                "Powered by the \u201cPDU Monitoring and Telemetry Insights\u201d Genie agent.",
+                className="text-muted small mb-3",
+            ),
+            html.Div(
+                [html.Div("Suggested questions:", className="text-muted small mb-2")]
+                + [
+                    dbc.Button(
+                        q, id=f"genie-q{i}", size="sm", color="outline-secondary",
+                        className="me-2 mb-2 d-inline-block text-start",
+                        style={"whiteSpace": "normal", "textAlign": "left"},
+                    )
+                    for i, q in enumerate(GENIE_SUGGESTIONS)
+                ],
+                className="mb-3",
+            ),
+            dbc.Card(
+                dbc.CardBody(
+                    [
+                        dcc.Loading(
+                            html.Div(
+                                id="genie-history",
+                                style={"minHeight": "80px", "maxHeight": "55vh", "overflowY": "auto"},
+                            ),
+                            type="default",
+                        ),
+                        html.Hr(className="my-2"),
+                        dbc.Textarea(
+                            id="genie-input",
+                            placeholder='e.g. "Which units have the highest severity score right now?"',
+                            rows=2,
+                            className="mb-2",
+                        ),
+                        dbc.Row(
+                            [
+                                dbc.Col(
+                                    dbc.Button("Ask", id="genie-ask-btn", color="primary", size="sm"),
+                                    width="auto",
+                                ),
+                                dbc.Col(
+                                    dbc.Button("New conversation", id="genie-new-btn", color="outline-secondary", size="sm"),
+                                    width="auto",
+                                ),
+                            ],
+                            className="g-2",
+                        ),
+                    ]
+                )
+            ),
+        ]
+    )
+
+
+@app.callback(
+    Output("genie-input", "value", allow_duplicate=True),
+    [Input(f"genie-q{i}", "n_clicks") for i in range(len(GENIE_SUGGESTIONS))],
+    prevent_initial_call=True,
+)
+def populate_suggestion(*_):
+    """Copy the clicked suggestion into the question input."""
+    if not ctx.triggered_id:
+        return no_update
+    idx = int(str(ctx.triggered_id).replace("genie-q", ""))
+    return GENIE_SUGGESTIONS[idx]
+
+
+@app.callback(
+    Output("genie-history", "children"),
+    Output("genie-input", "value"),
+    Output("genie-conv-id", "data"),
+    Input("genie-ask-btn", "n_clicks"),
+    State("genie-input", "value"),
+    State("genie-conv-id", "data"),
+    State("genie-history", "children"),
+    prevent_initial_call=True,
+)
+def submit_genie_question(_n, question, conv_id, history):
+    """Send a question (or follow-up) to Genie and append the turn to history."""
+    q = (question or "").strip()
+    if not q:
+        return no_update, no_update, no_update
+    result = genie_chat.follow_up(conv_id, q) if conv_id else genie_chat.ask(q)
+    turn = ui.genie_turn(q, result)
+    return (history or []) + [turn], "", result.get("conversation_id")
+
+
+@app.callback(
+    Output("genie-history", "children", allow_duplicate=True),
+    Output("genie-conv-id", "data", allow_duplicate=True),
+    Input("genie-new-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+def new_genie_conversation(_n):
+    """Clear the chat history and start a fresh conversation."""
+    return [], None
 
 
 if __name__ == "__main__":

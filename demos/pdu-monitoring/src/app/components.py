@@ -265,3 +265,38 @@ def history_list(items: list, kind: str):
                             html.Div(body, className="small note-body") if body else None],
                            className="list-group-item"))
     return html.Ul(out, className="list-group list-group-flush")
+
+
+# --------------------------------------------------------------------------- Genie chat
+def genie_turn(question: str, result: dict):
+    """Render one user + Genie response turn for the chat history."""
+    user_bubble = dbc.Card(
+        dbc.CardBody(question, className="py-2 small"),
+        color="primary",
+        inverse=True,
+        className="mb-2 ms-5",
+    )
+    if result.get("error"):
+        genie_bubble = dbc.Alert(
+            result["error"], color="danger", className="mb-2 me-5 small"
+        )
+    else:
+        body = [
+            html.P(
+                result.get("text", ""),
+                className="mb-1 small",
+                style={"whiteSpace": "pre-wrap"},
+            )
+        ]
+        for sql in result.get("sql") or []:
+            body.append(
+                html.Pre(
+                    html.Code(sql, className="small"),
+                    className="bg-light p-2 rounded mt-1 mb-0",
+                )
+            )
+        genie_bubble = dbc.Card(
+            dbc.CardBody(body, className="py-2"),
+            className="mb-2 me-5",
+        )
+    return html.Div([user_bubble, genie_bubble], className="mb-1")

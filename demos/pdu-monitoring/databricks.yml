@@ -26,6 +26,8 @@ targets:
       # App URL for this workspace - included in alert email bodies.
       # Update if the app name or workspace changes (format: <app-name>-<workspace-id>.aws.databricksapps.com).
       app_url: https://pdu-monitor-max-duganknight-7474647295259694.aws.databricksapps.com
+      # Genie agent for the AI assistant chat page.
+      genie_space_id: 01f1d966e0d11371ae5a2fe7606abc39
 
   prod:
     mode: production

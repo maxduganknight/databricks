@@ -23,6 +23,11 @@ resources:
             securable_full_name: ${var.catalog}.${var.schema}.${var.bronze_table}
             securable_type: TABLE
             permission: SELECT
+        - name: genie-space
+          description: Genie agent for natural language queries over PDU telemetry
+          genie_space:
+            space_id: ${var.genie_space_id}
+            permission: CAN_RUN
       config:
         env:
           - name: LAKEBASE_ENDPOINT
@@ -52,6 +57,8 @@ resources:
             value: ${var.rack_shelves}
           - name: RACK_POSITIONS
             value: ${var.rack_positions}
+          - name: DATABRICKS_GENIE_SPACE_ID
+            value_from: genie-space
       permissions:
         - level: CAN_MANAGE
           user_name: ${workspace.current_user.userName}
