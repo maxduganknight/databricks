@@ -281,20 +281,8 @@ def genie_turn(question: str, result: dict):
             result["error"], color="danger", className="mb-2 me-5 small"
         )
     else:
-        body = [
-            html.P(
-                result.get("text", ""),
-                className="mb-1 small",
-                style={"whiteSpace": "pre-wrap"},
-            )
-        ]
-        for sql in result.get("sql") or []:
-            body.append(
-                html.Pre(
-                    html.Code(sql, className="small"),
-                    className="bg-light p-2 rounded mt-1 mb-0",
-                )
-            )
+        # Genie answers are Markdown; render them as such. Generated SQL is intentionally not shown.
+        body = [dcc.Markdown(result.get("text", ""), className="mb-0 small genie-md")]
         genie_bubble = dbc.Card(
             dbc.CardBody(body, className="py-2"),
             className="mb-2 me-5",
