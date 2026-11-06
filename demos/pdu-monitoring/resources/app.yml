@@ -25,6 +25,25 @@ resources:
             securable_full_name: ${var.catalog}.${var.schema}.${var.bronze_table}
             securable_type: TABLE
             permission: SELECT
+        # Genie runs SQL as the app SP, so it needs SELECT on every table in the Genie space.
+        - name: latest-status-table
+          description: Current per-unit status (Genie space source)
+          uc_securable:
+            securable_full_name: ${var.catalog}.${var.schema}.pdu_latest_status
+            securable_type: TABLE
+            permission: SELECT
+        - name: minute-stats-table
+          description: Per-unit minute aggregates (Genie space source)
+          uc_securable:
+            securable_full_name: ${var.catalog}.${var.schema}.pdu_minute_stats
+            securable_type: TABLE
+            permission: SELECT
+        - name: thresholds-table
+          description: Threshold rules (Genie space source)
+          uc_securable:
+            securable_full_name: ${var.catalog}.${var.schema}.pdu_thresholds
+            securable_type: TABLE
+            permission: SELECT
         - name: genie-space
           description: Genie agent for natural language queries over PDU telemetry
           genie_space:
