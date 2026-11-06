@@ -44,6 +44,12 @@ resources:
             securable_full_name: ${var.catalog}.${var.schema}.pdu_thresholds
             securable_type: TABLE
             permission: SELECT
+        - name: predictions-table
+          description: Breach-risk predictions from the 12-hourly scoring job (Breach risk page)
+          uc_securable:
+            securable_full_name: ${var.catalog}.${var.schema}.pdu_breach_risk_predictions
+            securable_type: TABLE
+            permission: SELECT
         - name: genie-space
           description: Genie agent for natural language queries over PDU telemetry
           genie_space:
@@ -57,6 +63,8 @@ resources:
             value_from: sql-warehouse
           - name: BRONZE_TABLE
             value: ${var.catalog}.${var.schema}.${var.bronze_table}
+          - name: PREDICTIONS_TABLE
+            value: ${var.catalog}.${var.schema}.pdu_breach_risk_predictions
           - name: LB_SYNCED_SCHEMA
             value: ${var.schema}
           - name: LB_SYNCED_TABLE

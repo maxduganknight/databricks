@@ -22,6 +22,10 @@ import db
 log = logging.getLogger(__name__)
 
 BRONZE_TABLE = os.getenv("BRONZE_TABLE", "")
+# Breach-risk predictions from the 12-hourly scoring job; defaults to the bronze table's schema.
+PREDICTIONS_TABLE = os.getenv("PREDICTIONS_TABLE") or (
+    BRONZE_TABLE.rsplit(".", 1)[0] + ".pdu_breach_risk_predictions" if BRONZE_TABLE.count(".") == 2 else "")
+PREDICTIONS_TTL_S = int(os.getenv("PREDICTIONS_CACHE_SECONDS", "300"))
 WAREHOUSE_ID = os.getenv("DATABRICKS_WAREHOUSE_ID", "")
 STATUS_TTL_S = int(os.getenv("STATUS_CACHE_SECONDS", "10"))
 BRONZE_TTL_S = int(os.getenv("BRONZE_CACHE_SECONDS", "60"))
@@ -205,6 +209,33 @@ def _query_bronze(unit_id: str, minutes: int) -> pd.DataFrame:
     if not df.empty:
         df["event_ts"] = pd.to_datetime(df["event_ts"], utc=True)
     return df
+
+
+def _query_predictions() -> pd.DataFrame:
+    if not _TABLE_RE.match(PREDICTIONS_TABLE):
+        raise ValueError(f"Invalid PREDICTIONS_TABLE: {PREDICTIONS_TABLE!r}")
+    query = (
+        "SELECT unit_id, scoring_ts, risk_score, risk_rank, risk_band, already_breaching, rack_id, shelf, position, "
+        "temp_avg_1h, temp_max_6h, temp_headroom_1h, temp_trend_1h_vs_6h, current_avg_1h, "
+        "model_version, feature_list, scored_at "
+        f"FROM {PREDICTIONS_TABLE} "
+        f"WHERE scoring_ts = (SELECT max(scoring_ts) FROM {PREDICTIONS_TABLE}) "
+        "ORDER BY already_breaching DESC, risk_rank"
+    )
+    with _warehouse_connection() as conn, conn.cursor() as cur:
+        cur.execute(query)
+        rows = cur.fetchall()
+        cols = [d[0] for d in cur.description]
+    df = pd.DataFrame([tuple(r) for r in rows], columns=cols)
+    if not df.empty:
+        df["scoring_ts"] = pd.to_datetime(df["scoring_ts"], utc=True)
+    return df
+
+
+def latest_predictions():
+    """Latest breach-risk batch (one row per unit). Returns (DataFrame, cache_age_seconds)."""
+    df, loaded_at = _cache.get_or_load("predictions", PREDICTIONS_TTL_S, _query_predictions)
+    return df, time.monotonic() - loaded_at
 
 
 def bronze_window(unit_id: str, minutes: int):

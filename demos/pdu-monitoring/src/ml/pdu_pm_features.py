@@ -120,6 +120,23 @@ def label_spine(spark, cfg: PMConfig, start_ts=None, end_ts=None):
         .join(unit_attributes(spark, cfg), "unit_id")
 
 
+def latest_scoring_ts(spark, cfg: PMConfig):
+    """Most recent 00:00 / 12:00 UTC boundary at or before the newest minute of telemetry."""
+    cad = SCORING_CADENCE_HOURS * 3600
+    return spark.sql(f"""
+      SELECT timestamp_seconds(CAST(floor(unix_timestamp(max(minute_start) + INTERVAL 1 MINUTE) / {cad}) AS BIGINT) * {cad})
+      FROM {cfg.minute_stats}""").first()[0]
+
+
+def scoring_frame(spark, cfg: PMConfig, scoring_ts):
+    """One row per current unit at ``scoring_ts`` with static attributes and the timeseries
+    columns the Feature definitions join on (no label). Feed to ``fe.create_training_set(...,
+    label=None)`` and then :func:`add_derived_features`, exactly as in training."""
+    from pyspark.sql import functions as F
+    ts = F.lit(scoring_ts).cast("timestamp")
+    return training_frame(unit_attributes(spark, cfg).withColumn(TS, ts))
+
+
 # --------------------------------------------------------------------------- Feature Views
 
 def _windows():
