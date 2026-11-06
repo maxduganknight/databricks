@@ -139,9 +139,9 @@ def feature_specs(cfg: PMConfig, include_maintenance: bool = True):
         specs[f"volt_avg_{win}"] = (ms, None, "Avg", "voltage_avg", w[win])
     for win in ("6h", "24h"):
         specs[f"volt_min_{win}"] = (ms, None, "Min", "voltage_min", w[win])
-        specs[f"volt_std_{win}"] = (ms, None, "StddevSamp", "voltage_avg", w[win])
-        specs[f"temp_std_{win}"] = (ms, None, "StddevSamp", "temperature_avg", w[win])
-        specs[f"current_std_{win}"] = (ms, None, "StddevSamp", "current_avg", w[win])
+        specs[f"volt_std_{win}"] = (ms, None, "StddevPop", "voltage_avg", w[win])
+        specs[f"temp_std_{win}"] = (ms, None, "StddevPop", "temperature_avg", w[win])
+        specs[f"current_std_{win}"] = (ms, None, "StddevPop", "current_avg", w[win])
         # Minutes with a voltage sag / spike into the warning band, and hot minutes.
         specs[f"sag_minutes_{win}"] = (ms, "voltage_min < 228 OR voltage_max > 252", "Count", "unit_id", w[win])
         specs[f"hot_minutes_{win}"] = (ms, "temperature_max > 45", "Count", "unit_id", w[win])
@@ -156,6 +156,27 @@ def feature_specs(cfg: PMConfig, include_maintenance: bool = True):
 
 def _ts_column(table: str) -> str:
     return "action_ts" if table.endswith("maintenance_actions") else "minute_start"
+
+
+# RollingWindow (continuous) supports only SUM / AVG / COUNT / STDDEV_POP. Min / Max use a batch
+# SlidingWindow that slides every hour; scoring times are on the hour, so the latest slide ending
+# at or before scoring time covers exactly the preceding window.
+_ROLLING_OPS = {"Sum", "Avg", "Count", "StddevPop"}
+
+
+def _window(E, op: str, duration: timedelta):
+    if op in _ROLLING_OPS:
+        return E.RollingWindow(window_duration=duration)
+    # slide must be strictly shorter than the window (1 h windows slide every 30 min).
+    slide = min(timedelta(hours=1), duration / 2)
+    return E.SlidingWindow(window_duration=duration, slide_duration=slide)
+
+
+def training_frame(spine_df):
+    """Add the timeseries column names the Feature definitions declare (minute_start for
+    pdu_minute_stats features, action_ts for maintenance features), both equal to scoring_ts."""
+    return (spine_df.withColumn("minute_start", spine_df[TS])
+                    .withColumn("action_ts", spine_df[TS]))
 
 
 def get_or_create_features(fe, cfg: PMConfig, names: list[str], include_maintenance: bool = True):
@@ -183,8 +204,7 @@ def get_or_create_features(fe, cfg: PMConfig, names: list[str], include_maintena
             source=E.DeltaTableSource(**src_kwargs),
             entity=[ENTITY],
             timeseries_column=_ts_column(table),
-            function=E.AggregationFunction(
-                getattr(E, op)(input=col), E.RollingWindow(window_duration=window)),
+            function=E.AggregationFunction(getattr(E, op)(input=col), _window(E, op, window)),
         ))
     return out
 
@@ -194,6 +214,7 @@ def get_or_create_features(fe, cfg: PMConfig, names: list[str], include_maintena
 def add_derived_features(pdf: pd.DataFrame) -> pd.DataFrame:
     """Strip the pm_ prefix and add trend / headroom / maintenance-recency columns."""
     pdf = pdf.rename(columns={c: c[3:] for c in pdf.columns if c.startswith("pm_")}).copy()
+    pdf = pdf.drop(columns=[c for c in ("minute_start", "action_ts") if c in pdf.columns])
     g = pdf.get
     if g("temp_avg_6h") is not None and g("temp_avg_24h") is not None:
         pdf["temp_trend_6h_vs_24h"] = pdf["temp_avg_6h"] - pdf["temp_avg_24h"]
