@@ -34,6 +34,7 @@ resources:
               num_racks: ${var.num_racks}
               shelves: ${var.rack_shelves}
               positions: ${var.rack_positions}
+              maintenance_table: ${var.catalog}.${var.ops_history_schema}.${var.maintenance_table}
 
         - task_key: update_pipeline
           depends_on:

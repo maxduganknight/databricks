@@ -53,11 +53,14 @@ variables:
 
   # ------------------------------------------------------------------ synthetic data (demo only)
   bronze_retention_days:
-    description: Days of bronze telemetry kept by the generator's retention DELETE.
-    default: "7"
+    description: Days of bronze telemetry kept by the generator's retention DELETE (21 gives the predictive-maintenance model room for train / validation / holdout periods).
+    default: "21"
   backfill_hours:
     description: Max hours the generator backfills when bronze is empty or behind.
     default: "6"
+  history_rebuild_hours:
+    description: Hours of history the pdu-history-rebuild job regenerates with the wear model (504 = 21 days).
+    default: "504"
   num_racks:
     description: Number of racks generated (the last rack uses the high-density PDU model).
     default: "4"
@@ -83,6 +86,9 @@ variables:
   ops_history_schema:
     description: UC schema where ops history tables (technician_alerts, unit_notes) are synced for analytics and alerting.
     default: ops_history
+  maintenance_table:
+    description: Table (within ops_history_schema) of maintenance actions recorded in the app; resets simulated wear and feeds the predictive-maintenance features.
+    default: maintenance_actions
 
   # ------------------------------------------------------------------ Genie agent
   genie_space_id:

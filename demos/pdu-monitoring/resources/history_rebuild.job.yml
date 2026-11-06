@@ -1,0 +1,47 @@
+# One-off (on-demand) rebuild of synthetic bronze history with the wear / degradation model,
+# followed by a FULL refresh of the monitoring pipeline and a Lakebase sync.
+# Pause the pdu-refresh schedule while this runs (deploy with --var refresh_pause_status=PAUSED),
+# then unpause it afterwards. Demo only - never run against a real bronze feed.
+resources:
+  jobs:
+    pdu_history_rebuild:
+      name: pdu-history-rebuild
+      description: Regenerates synthetic bronze history with the wear model, then fully refreshes the pipeline.
+      max_concurrent_runs: 1
+      parameters:
+        - name: rebuild_hours
+          default: ${var.history_rebuild_hours}
+      tasks:
+        - task_key: rebuild_bronze
+          notebook_task:
+            notebook_path: ../src/notebooks/generate_synthetic_telemetry.ipynb
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              bronze_table: ${var.bronze_table}
+              backfill_hours: ${var.backfill_hours}
+              retention_days: ${var.bronze_retention_days}
+              num_racks: ${var.num_racks}
+              shelves: ${var.rack_shelves}
+              positions: ${var.rack_positions}
+              maintenance_table: ${var.catalog}.${var.ops_history_schema}.${var.maintenance_table}
+              rebuild_hours: "{{job.parameters.rebuild_hours}}"
+
+        - task_key: full_refresh_pipeline
+          depends_on:
+            - task_key: rebuild_bronze
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.pdu_monitoring.id}
+            full_refresh: true
+
+        - task_key: sync_lakebase
+          depends_on:
+            - task_key: full_refresh_pipeline
+          notebook_task:
+            notebook_path: ../src/notebooks/refresh_lakebase_sync.ipynb
+            base_parameters:
+              synced_table: ${var.catalog}.${var.schema}.pdu_latest_status_synced
+              timeout_minutes: ${var.lakebase_sync_timeout_minutes}
+      email_notifications:
+        on_failure:
+          - ${var.alert_email}
