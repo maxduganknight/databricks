@@ -8,6 +8,9 @@ resources:
       name: pdu-refresh
       description: Scheduled - append synthetic telemetry, update the monitoring pipeline, sync status to Lakebase.
       max_concurrent_runs: 1
+      tags:
+        component: refresh
+      budget_policy_id: ${var.usage_policy_id}
       # If a run is still going when the next tick fires, skip the tick instead of queueing a backlog.
       queue:
         enabled: false

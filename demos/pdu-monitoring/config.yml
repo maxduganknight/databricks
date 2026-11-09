@@ -31,6 +31,20 @@ variables:
     lookup:
       warehouse: Serverless Starter Warehouse
 
+  # ------------------------------------------------------------------ cost attribution
+  # Every job and the pipeline get project / environment tags (presets in databricks.yml) plus a
+  # per-resource component tag; the Lakebase project is tagged in lakebase.yml. Group
+  # system.billing.usage by custom_tags['project'] / ['component'] to attribute cost.
+  cost_tag_project:
+    description: Value of the `project` tag on every resource of this use case (cost attribution).
+    default: pdu-monitoring
+  usage_policy_id:
+    description: >-
+      Serverless usage policy (tags project=pdu-monitoring) attached to the pipeline, app and jobs so
+      their serverless usage is tagged in system.billing.usage. Set per target in databricks.yml;
+      empty = the deploying identity's default policy.
+    default: ""
+
   # ------------------------------------------------------------------ refresh (generator -> pipeline -> Lakebase sync)
   refresh_cron:
     description: Quartz cron for the pdu-refresh job (default every 5 minutes).

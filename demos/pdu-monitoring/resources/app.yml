@@ -5,6 +5,8 @@ resources:
       name: ${var.app_name}
       description: PDU rack monitoring and troubleshooting (Lakebase + SQL warehouse).
       source_code_path: ../src/app
+      # Apps take no custom tags; the serverless usage policy tags their usage for cost attribution.
+      budget_policy_id: ${var.usage_policy_id}
       user_api_scopes:
         - dashboards.genie
       resources:

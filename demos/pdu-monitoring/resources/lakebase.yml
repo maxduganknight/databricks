@@ -8,6 +8,14 @@ resources:
       project_id: ${var.lakebase_project}
       display_name: PDU Monitoring (${bundle.target})
       pg_version: 17
+      # Forwarded to billing. Bundle presets do not tag Lakebase, so the tags are set here.
+      custom_tags:
+        - key: project
+          value: ${var.cost_tag_project}
+        - key: environment
+          value: ${bundle.target}
+        - key: component
+          value: lakebase
       default_endpoint_settings:
         autoscaling_limit_min_cu: ${var.lakebase_min_cu}
         autoscaling_limit_max_cu: ${var.lakebase_max_cu}

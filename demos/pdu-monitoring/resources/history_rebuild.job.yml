@@ -8,6 +8,9 @@ resources:
       name: pdu-history-rebuild
       description: Regenerates synthetic bronze history with the wear model, then fully refreshes the pipeline.
       max_concurrent_runs: 1
+      tags:
+        component: synthetic-data
+      budget_policy_id: ${var.usage_policy_id}
       parameters:
         - name: rebuild_hours
           default: ${var.history_rebuild_hours}
