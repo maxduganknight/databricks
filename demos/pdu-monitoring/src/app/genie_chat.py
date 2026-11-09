@@ -106,7 +106,9 @@ def follow_up(conversation_id: str, question: str) -> dict:
             conversation_id=conversation_id,
             content=question,
         )
-        msg = _poll(SPACE_ID, conversation_id, sent.id)
+        # create_message returns an SDK Wait wrapper; attribute access only
+        # exposes its bound kwargs (conversation_id, message_id, space_id).
+        msg = _poll(SPACE_ID, conversation_id, sent.message_id)
         return _extract(msg, conversation_id)
     except Exception as exc:  # noqa: BLE001
         log.exception("genie.follow_up failed")

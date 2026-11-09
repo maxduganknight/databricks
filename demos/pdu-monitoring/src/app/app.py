@@ -2,6 +2,7 @@
 
 Pages
 * /                 rack grid + KPIs + worst offenders, refreshed from Lakebase every REFRESH_SECONDS.
+* /risk             breach-risk ranking from the latest predictive-maintenance batch (SQL warehouse, cached).
 * /unit/<unit_id>   troubleshooting: second-level bronze for that unit only (SQL warehouse, cached),
                     threshold bands, alert technician, unit notes (Lakebase).
 
@@ -58,6 +59,7 @@ app.layout = html.Div(
             dbc.Container(
                 [
                     dcc.Link(dbc.NavbarBrand("PDU Monitoring"), href="/", className="text-decoration-none"),
+                    dcc.Link("Breach risk", href="/risk", className="text-light small ms-3"),
                     dcc.Link("Ask Genie", href="/genie", className="text-light small ms-3"),
                     html.Small(id="nav-user", className="text-light ms-auto"),
                 ],
@@ -79,6 +81,8 @@ def route(pathname):
         page = unit_layout(m.group(1))
     elif (pathname or "").rstrip("/") == "/genie":
         page = genie_layout()
+    elif (pathname or "").rstrip("/") == "/risk":
+        page = risk_layout()
     else:
         page = monitor_layout()
     return page, f"Signed in as {operator()}"
@@ -138,6 +142,81 @@ def refresh_monitor(_, selected_racks):
             grid,
         ])
     return ui.kpi_row(view), grid, ui.offenders_table(view), f"Auto-refresh every {REFRESH_MS // 1000}s"
+
+
+# =========================================================================== breach-risk page
+RISK_BAND_COLOR = {"IN_BREACH": "danger", "HIGH": "warning", "ELEVATED": "info", "LOW": "secondary"}
+RISK_BAND_LABEL = {"IN_BREACH": "In breach", "HIGH": "High", "ELEVATED": "Elevated", "LOW": "Low"}
+
+
+def risk_layout():
+    return html.Div(
+        [
+            html.H5("Breach risk - next 12 hours", className="mb-1"),
+            html.Div(id="risk-meta", className="small text-muted mb-2"),
+            dbc.Row(
+                [
+                    dbc.Col(dcc.Dropdown(id="risk-band", multi=True, placeholder="All risk bands",
+                                         options=[{"label": RISK_BAND_LABEL[b], "value": b} for b in RISK_BAND_LABEL],
+                                         value=["IN_BREACH", "HIGH", "ELEVATED"]), md=4),
+                    dbc.Col(dbc.Button("Refresh", id="risk-refresh", size="sm", color="secondary"), width="auto"),
+                ],
+                className="g-2 mb-2",
+            ),
+            dcc.Loading(html.Div(id="risk-table")),
+        ]
+    )
+
+
+def _fmt(v, spec="{:.1f}"):
+    try:
+        return "" if v is None or v != v else spec.format(float(v))
+    except (TypeError, ValueError):
+        return ""
+
+
+def risk_table(df):
+    head = html.Thead(html.Tr([html.Th(c) for c in (
+        "Rank", "Unit", "Risk", "Score", "Temp 1h (C)", "Headroom to breach (C)", "Temp trend 1h vs 6h (C)",
+        "Max temp 6h (C)", "Current 1h (A)")]))
+    rows = []
+    for r in df.itertuples():
+        band = r.risk_band or "LOW"
+        rows.append(html.Tr([
+            html.Td("" if r.risk_rank is None or r.risk_rank != r.risk_rank else int(r.risk_rank)),
+            html.Td(dcc.Link(r.unit_id, href=f"/unit/{r.unit_id}")),
+            html.Td(dbc.Badge(RISK_BAND_LABEL.get(band, band), color=RISK_BAND_COLOR.get(band, "secondary"))),
+            html.Td(_fmt(r.risk_score, "{:.2f}")),
+            html.Td(_fmt(r.temp_avg_1h)),
+            html.Td(_fmt(r.temp_headroom_1h)),
+            html.Td(_fmt(r.temp_trend_1h_vs_6h, "{:+.1f}")),
+            html.Td(_fmt(r.temp_max_6h)),
+            html.Td(_fmt(r.current_avg_1h)),
+        ]))
+    return dbc.Table([head, html.Tbody(rows)], size="sm", hover=True, striped=True, className="small")
+
+
+@app.callback(
+    Output("risk-table", "children"),
+    Output("risk-meta", "children"),
+    Input("risk-band", "value"),
+    Input("risk-refresh", "n_clicks"),
+)
+def refresh_risk(bands, _):
+    try:
+        df, age = data.latest_predictions()
+    except Exception as e:  # noqa: BLE001
+        return error_alert("Loading breach-risk predictions", e), ""
+    if df.empty:
+        return dbc.Alert("No predictions yet - has the scoring job run?", color="warning"), ""
+    view = df[df["risk_band"].isin(bands)] if bands else df
+    first = df.iloc[0]
+    counts = df["risk_band"].value_counts()
+    meta = (f"Scored at {first.scoring_ts:%Y-%m-%d %H:%M} UTC with model v{first.model_version} ({first.feature_list}). "
+            f"{counts.get('HIGH', 0)} high, {counts.get('ELEVATED', 0)} elevated, {counts.get('IN_BREACH', 0)} already in breach. "
+            "Units are ranked by model score; 'High' = top units to visit this shift. "
+            "Scores rank units and are not calibrated probabilities.")
+    return risk_table(view), meta
 
 
 # =========================================================================== troubleshooting page
