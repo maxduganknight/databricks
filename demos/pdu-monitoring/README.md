@@ -1,97 +1,78 @@
 # PDU Monitoring (prototype)
 
-Rack PDU monitoring pipeline and application, packaged as one Declarative Automation Bundle:
-second-level telemetry in Delta, a Lakeflow Spark Declarative Pipeline that classifies every PDU
-against configurable thresholds, a Lakebase (Postgres) serving layer, and a Dash Databricks App for
-operators.
+Rack PDU monitoring as one Declarative Automation Bundle: second-level telemetry in Delta, a Lakeflow
+Spark Declarative Pipeline that classifies every PDU against configurable thresholds, a Lakebase
+(Postgres) serving layer, a Dash Databricks App for operators, SQL alerts, a Genie agent and a
+predictive-maintenance model that ranks units by breach risk.
 
 ```
 bronze_pdu_telemetry (1 row / PDU / second)
-        |  SDP pipeline (triggered every 5 min)
-        v
-pdu_minute_stats (1-min windows)  +  pdu_thresholds
-        |
-        v
-pdu_latest_status (1 row / PDU)  --SNAPSHOT sync-->  Lakebase: pdu_latest_status_synced
-        |                                            Lakebase: pdu_app.technician_alerts / unit_notes
-        +--> SQL alert (breach email to monitoring team)
+   |  SDP pipeline (triggered by pdu-refresh every 5 min)
+   v
+pdu_minute_stats (1-min windows) + pdu_thresholds
+   |                       |
+   v                       +--> Feature Views (pm_*) --> breach-risk model --> pdu_breach_risk_predictions
+pdu_latest_status (1 row / PDU) --SNAPSHOT sync--> Lakebase pdu_latest_status_synced
+   +--> breach SQL alert                           Lakebase pdu_app.technician_alerts / unit_notes
+                                                      | ops history sync (every 5 min)
+                                                      v
+                                     UC ops_history.* (Delta + CDF) --> technician SQL alert
 
-ops history sync (every 5 min, after pipeline):
-  Lakebase pdu_app.technician_alerts  -->  UC ops_history.technician_alerts (Delta + CDF)
-  Lakebase pdu_app.unit_notes         -->  UC ops_history.unit_notes (Delta + CDF)
-        +--> SQL alert (technician email when alert triggered)
-
-Databricks App (Dash)  -- monitoring page reads Lakebase only
-                       -- unit page reads bronze for one unit via SQL warehouse
-                       -- operator clicks "Alert technician" from unit page
+App: monitor (Lakebase) | unit troubleshooting (bronze via warehouse) | breach risk | Ask Genie
 ```
 
 ## Configuration
 
-**`config.yml` is the single place to edit settings.** Every tunable is a bundle variable there,
-grouped and documented; the files in `resources/` only reference `${var.<name>}`. Main knobs:
+All settings are bundle variables in **`config.yml`**, grouped and documented there; `resources/`
+only references `${var.<name>}`. The ones you are most likely to change:
 
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `catalog` / `schema` / `bronze_table` | `mdk_demo_catalog` / `pdu_monitoring` / `bronze_pdu_telemetry` | Where bronze and all pipeline outputs live |
-| `warehouse_id` | lookup `Serverless Starter Warehouse` | Warehouse for app bronze queries and the alert |
-| `refresh_cron` / `refresh_timezone` / `refresh_pause_status` | `0 0/5 * * * ?` / `UTC` / `UNPAUSED` | Schedule of `pdu-refresh` (generator -> pipeline -> Lakebase sync) |
-| `refresh_duration_warning_seconds` / `refresh_timeout_seconds` | `480` / `1200` | Slow-run warning email / hard timeout |
-| `bronze_retention_days` / `backfill_hours` | `7` / `6` | Synthetic generator retention and max backfill (demo only) |
-| `num_racks` / `rack_shelves` / `rack_positions` | `4` / `5` / `5` | Generated layout; shelves/positions also size the app grid |
-| `watermark` / `status_lookback_hours` / `pipeline_stale_after_minutes` | `1 minute` / `24` / `3` | Pipeline late-data tolerance, status lookback, stale rule |
-| `alert_email` | deploying user | Job failure and breach notifications |
-| `breach_alert_cron` / `breach_alert_pause_status` | `0 2/5 * * * ?` / `UNPAUSED` (`PAUSED` in dev) | Breach alert schedule |
-| `technician_email` | deploying user | Email notified when "Alert technician" is triggered |
-| `tech_alert_window_minutes` | `15` | Alert fires when a technician alert was triggered within this window |
-| `ops_history_schema` | `ops_history` | UC schema where `technician_alerts` / `unit_notes` are synced |
-| `app_url` | `""` (empty) | Public URL of the deployed app — embedded as a link in both alert emails. Set per target in `databricks.yml` (dev already sets it to the deployed URL). |
-| `app_refresh_seconds` / `app_breach_bronze_refresh_seconds` | `30` / `60` | App page refresh / bronze auto-refresh while in BREACH |
-| `app_status_cache_seconds` / `app_bronze_cache_seconds` / `app_stale_after_minutes` | `10` / `60` / `15` | App query caches and app-side stale rule |
-| `lakebase_min_cu` / `lakebase_max_cu` / `lakebase_suspend_timeout` | `0.5` / `2` / `300s` | Lakebase endpoint autoscaling and idle suspend |
+| `catalog` / `schema` / `bronze_table` | `mdk_demo_catalog` / `pdu_monitoring` / `bronze_pdu_telemetry` | Where bronze and all outputs live |
+| `warehouse_id` | lookup `Serverless Starter Warehouse` | App bronze queries and both alerts |
+| `refresh_cron` / `refresh_pause_status` | every 5 min UTC / `UNPAUSED` | `pdu-refresh` schedule |
+| `bronze_retention_days` | `21` | Synthetic bronze retention (enough history for model training) |
+| `num_racks` / `rack_shelves` / `rack_positions` | `4` / `5` / `5` | Generated layout; also sizes the app grid |
+| `alert_email` / `technician_email` | deploying user | Job-failure and breach mail / "Alert technician" mail |
+| `breach_alert_pause_status` | `UNPAUSED` (`PAUSED` in dev) | Schedule state of both SQL alerts |
+| `app_url` / `genie_space_id` | set in dev | Link in alert emails / Genie agent for the Ask Genie page |
+| `cost_tag_project` / `usage_policy_id` | `pdu-monitoring` / set in dev | Cost attribution (see Schedules and cost) |
 
-* **Thresholds** are not in `config.yml`: edit `src/sql/pdu_thresholds_seed.csv` (see below).
-* **Per-environment overrides** go in `databricks.yml` under `targets.<target>.variables` (dev already
-  overrides `lakebase_project`, `app_name`, `breach_alert_pause_status` and `app_url`), or on the
-  command line with `--var name=value`.
-* Changes take effect on `databricks bundle deploy -t <target>`; for app settings also run
-  `databricks bundle run pdu_app -t <target>` so the app restarts with the new environment.
+Thresholds live in `src/sql/pdu_thresholds_seed.csv`, not `config.yml`. Override per target in
+`databricks.yml` (`targets.<target>.variables`) or ad hoc with `--var name=value`. Changes apply on
+`databricks bundle deploy`; app settings also need `databricks bundle run pdu_app`.
 
 ## What's in the repo
 
 | Path | Purpose |
 | --- | --- |
-| `config.yml` | All settings (bundle variables) - edit here |
-| `databricks.yml` | Bundle, includes, `dev` / `prod` targets and per-target overrides |
+| `config.yml` / `databricks.yml` | Settings / bundle, `dev` and `prod` targets |
+| `resources/refresh.job.yml` | `pdu-refresh`: generator -> pipeline -> Lakebase sync -> ops history sync |
 | `resources/generator.job.yml` | On-demand synthetic bronze backfill (demo only) |
+| `resources/history_rebuild.job.yml` | On-demand rebuild of synthetic history with the wear model + full pipeline refresh (demo only) |
 | `resources/pipeline.yml` | SDP pipeline `pdu-monitoring-pipeline` |
-| `resources/lakebase.yml` | Lakebase project, branch, endpoint, database, synced table |
-| `resources/lakebase_setup.job.yml` | Applies `src/sql/lakebase/*.sql` migrations, grants the app |
-| `resources/app.yml` | Databricks App + its resources (Lakebase, warehouse, bronze `SELECT`) |
-| `resources/refresh.job.yml` | `pdu-refresh`: generator -> pipeline -> Lakebase sync -> ops history sync (default every 5 min) |
-| `resources/breach.alert.yml` | SQL alert: email when any PDU is in BREACH |
-| `resources/technician_alert.alert.yml` | SQL alert: email `technician_email` when "Alert technician" is triggered |
-| `src/notebooks/` | Synthetic generator, Lakebase migrations, Lakebase sync trigger, ops history sync |
-| `src/sql/lakebase/` | Postgres schema migrations applied by `pdu_lakebase_setup` |
+| `resources/lakebase.yml` / `lakebase_setup.job.yml` | Lakebase project, branch, endpoint, database, synced table / migrations and app grants |
+| `resources/app.yml` | Databricks App and its resource bindings |
+| `resources/breach.alert.yml` / `technician_alert.alert.yml` | SQL alerts: any PDU in BREACH / "Alert technician" triggered |
 | `src/pipeline/` | Pipeline transformations + shared rules (`utilities/pdu_rules.py`) |
-| `src/sql/pdu_thresholds_seed.csv` | Threshold rules (source of truth) |
-| `src/app/` | Dash app (`app.py` pages/callbacks, `data.py` data access, `components.py` UI) |
+| `src/notebooks/` | Generator, Lakebase migrations and sync, ops history sync, model training and scoring |
+| `src/ml/pdu_pm_features.py` | Feature definitions, labels and scoring helpers shared by training and scoring |
+| `src/app/` | Dash app (`app.py` pages, `data.py` data access, `components.py` UI, `genie_chat.py`) |
+| `src/sql/` | Threshold rules CSV, Lakebase migrations, cost attribution query |
 | `tests/` | pytest suite for the rules and UI helpers |
-| `docs/CHECKLIST.md` | Deploy / verification checklist |
+| `docs/` | `CHECKLIST.md` (deploy checks), `BUILD_EVIDENCE.md` (captured run outputs) |
 
 ## Data model
 
-* **Bronze** `<catalog>.<schema>.bronze_pdu_telemetry`: voltage, current, power, temperature,
-  humidity per second, clustered by `(unit_id, event_ts)`, `bronze_retention_days` retention. 
-* **`pdu_minute_stats`** (streaming table): 1-minute tumbling windows per PDU, `watermark` late-data tolerance
-* **`pdu_latest_status`** (materialized view): newest minute per PDU over a `status_lookback_hours` lookback with
-  `status` (OK / WARN / BREACH), `breached_metrics`, `warn_metrics`, `severity_score`,
-  `breach_started_ts`, `breach_minutes_lookback`, `is_stale` and the resolved thresholds.
-* **Lakebase** `pdu_app.technician_alerts` (alert tied to a breach episode via `breach_started_ts`) and
-  `pdu_app.unit_notes`, written by the app as the signed-in user's email.
-* **`ops_history` (UC Delta)** `technician_alerts` and `unit_notes` — copies of the Lakebase tables,
-  synced after each pipeline cycle by `sync_ops_lakehouse`, with Delta Change Data Feed enabled.
-  Queried by the technician SQL alert.
+* **`bronze_pdu_telemetry`**: per-second voltage, current, power, temperature and humidity, clustered
+  by `(unit_id, event_ts)`. Not bundle-managed, so `bundle destroy` never drops it.
+* **`pdu_minute_stats`** (streaming table): 1-minute windows per PDU.
+* **`pdu_latest_status`** (materialized view): one row per PDU with `status` (OK / WARN / BREACH),
+  breached / warned metrics, `severity_score`, `breach_started_ts`, `is_stale` and resolved thresholds.
+* **Lakebase `pdu_app`**: `technician_alerts` and `unit_notes`, written by the app as the signed-in
+  user; copied to UC `ops_history` (Delta + CDF) after each pipeline cycle.
+* **`pdu_breach_risk_predictions`**: one row per unit per scoring time with `risk_score`, `risk_rank`,
+  `risk_band` (HIGH / ELEVATED / LOW / IN_BREACH) and the key features behind it.
 
 ### Thresholds
 
@@ -110,26 +91,34 @@ republishes `pdu_thresholds`. Rules are per metric (`voltage`, `temperature`) wi
 
 ## The app
 
-* **Monitoring (`/`)**: KPIs (breach / warning / OK / stale counts, unalerted breaches, data age),
-  racks stacked vertically with one landscape tile per PDU (green OK, amber WARN, pulsing red
-  unalerted BREACH, dark red alerted, hatched stale), rack filter, worst-offenders list.
-  Refreshes from Lakebase every `app_refresh_seconds`; never queries bronze.
-* **Troubleshooting (`/unit/<unit_id>`)**: unit facts and resolved thresholds, second-level voltage
-  and temperature for the last 15/30/60/120 min with shaded threshold bands and breach points,
-  "Alert technician" button (writes to Lakebase, synced to UC ops_history), notes. Bronze is
-  queried on open / window change / Refresh and auto-refreshed every
-  `app_breach_bronze_refresh_seconds` only while the unit is in BREACH (results cached
-  `app_bronze_cache_seconds` across users).
+* **Monitor (`/`)**: KPIs, one tile per PDU by rack (OK / WARN / BREACH, alerted, stale), worst
+  offenders. Reads Lakebase only, refreshed every `app_refresh_seconds`.
+* **Unit (`/unit/<unit_id>`)**: second-level voltage and temperature with threshold bands, "Alert
+  technician" and notes. Queries bronze via the warehouse on demand (auto-refresh only while in BREACH).
+* **Breach risk (`/risk`)**: latest model ranking, filterable by band, linking to each unit page.
+* **Ask Genie (`/genie`)**: natural-language questions over the PDU tables, as the signed-in user.
 
-App settings come from `config.yml` (`app_*`, `rack_shelves`, `rack_positions`) and reach the app as
-environment variables via `resources/app.yml`.
+## Predictive maintenance
+
+Ranks healthy units by the chance of a sustained breach (at least 5 minutes) in the next 12 hours, so
+technicians can visit them first. Features are Feature Views over `pdu_minute_stats` (`pm_*` in the
+schema, computed point-in-time, not materialized).
+
+* **Train**: `src/notebooks/predictive_maintenance_training` compares feature sets and models against
+  a simple temperature-headroom rule on an out-of-time split, then registers
+  `pdu_breach_risk_model` with alias `champion`.
+* **Score**: `src/notebooks/score_breach_risk` scores every unit at the latest 00:00 / 12:00 UTC
+  boundary and writes `pdu_breach_risk_predictions`. Run on demand; not yet scheduled.
+
+Results are in `docs/BUILD_EVIDENCE.md` section 9: the model beats the rule on PR-AUC but matches it at
+the top 10 per shift, and scores are a ranking, not calibrated probabilities.
 
 ## Deploy
 
-Prerequisites: a recent Databricks CLI with Lakebase Autoscaling bundle resources (developed with
-v1.22.1) authenticated to the workspace, a Unity Catalog catalog you
-can create schemas in, a SQL warehouse (default lookup: `Serverless Starter Warehouse`), serverless
-compute, Lakebase Autoscaling and Databricks Apps enabled.
+Prerequisites: a recent Databricks CLI (with Lakebase Autoscaling bundle resources), a UC catalog
+you can create schemas in, a SQL warehouse, serverless compute, Lakebase Autoscaling and Databricks
+Apps. Optional: a Genie space over the PDU tables and a serverless usage policy (set their IDs per
+target).
 
 ```bash
 databricks bundle validate --strict -t dev
@@ -140,33 +129,29 @@ databricks bundle run pdu_lakebase_setup -t dev        # migrations + app grants
 databricks bundle run pdu_app -t dev                   # deploy / start the app
 ```
 
-On a brand-new workspace the synced table needs `pdu_latest_status` to exist. If the first deploy
-fails on `postgres_synced_tables`, run the generator job and a pipeline update
-(`databricks bundle run pdu_monitoring -t dev`), then deploy again.
-
-Override settings per workspace in `config.yml`, per target in `databricks.yml`, or ad hoc with
-`--var catalog=my_catalog --var alert_email=ops@example.com`.
-For `prod`: `databricks bundle deploy -t prod`, then run the same jobs with `-t prod` (ideally from
-CI as a service principal).
+First deploy on a new workspace: the synced table needs `pdu_latest_status`, and the app binds to
+`pdu_breach_risk_predictions`. If deploy fails on either, run the generator and a pipeline update
+(`databricks bundle run pdu_monitoring -t dev`), and the training and scoring notebooks, then deploy
+again. For `prod`, deploy and run with `-t prod`, ideally from CI as a service principal.
 
 ### Schedules and cost
 
-* `pdu-refresh` runs on `refresh_cron` (default every 5 minutes, UTC) on serverless, takes ~3-4
-  minutes, skips a tick rather than queueing if a run overruns, and emails on failure or if a run
-  exceeds `refresh_duration_warning_seconds` (default 8 minutes). End-to-end freshness in the app
-  is roughly 3-8 minutes behind bronze.
-* The breach alert evaluates on `breach_alert_cron` (default every 5 minutes) on the SQL warehouse.
-  It is **paused in `dev`**; enable with
-  `databricks bundle deploy -t dev --var breach_alert_pause_status=UNPAUSED`.
-* The technician alert evaluates on the same cadence as the breach alert and is also paused in dev.
-  Set `technician_email` in `config.yml` to point alerts at the right person.
-* Lakebase endpoint autoscales `lakebase_min_cu`-`lakebase_max_cu` (default 0.5-2 CU) and suspends
-  after `lakebase_suspend_timeout` (default 5 minutes) idle.
+* **`pdu-refresh`** runs every 5 minutes on serverless (about 3-4 minutes per run), skips a tick
+  rather than queueing, and emails on failure or slow runs. The app lags bronze by about 3-8 minutes.
+  It is the largest cost: about $35-45 a day at list price in dev.
+* **Both SQL alerts** evaluate every 5 minutes on the warehouse and are paused in dev; enable with
+  `--var breach_alert_pause_status=UNPAUSED`.
+* **Lakebase** autoscales 0.5-2 CU and suspends after 5 idle minutes.
+* **Cost attribution**: jobs and the pipeline get `project`, `environment` and `component` tags from
+  the bundle, the Lakebase project gets the same as `custom_tags`, and the pipeline, app and jobs use
+  the serverless usage policy in `usage_policy_id` (tag `project`). Query
+  `src/sql/pdu_cost_attribution.sql` for daily cost by component. Not attributed: the shared SQL
+  warehouse, and notebooks run interactively unless the usage policy is your default.
 
 ### Teardown
 
-`databricks bundle destroy -t dev` removes the jobs, pipeline, app, alert and Lakebase project.
-The schema and bronze table are deliberately not bundle-managed and are kept.
+`databricks bundle destroy -t dev` removes the jobs, pipeline, app, alerts and Lakebase project.
+The schema, bronze table, ops history, model and predictions are not bundle-managed and are kept.
 
 ## Tests
 
@@ -180,10 +165,10 @@ UI helper tests are skipped if Dash is not installed.
 
 ## Known limitations (prototype)
 
-* Telemetry is synthetic; one unit runs hot (`R03-S5-P4`, ~48 °C, UNIT breach threshold lowered to
-  46 °C for demo) and one drops out periodically (`R02-S3-P2`) to exercise WARN and stale states.
+* Telemetry is synthetic, with a simulated wear model. `R03-S5-P4` runs hot (its breach threshold
+  is lowered to 46 C so it always shows BREACH) and `R02-S3-P2` drops out to exercise stale states.
 * Status is minute-level and recomputed every 5 minutes; it is not a real-time alarm system.
-* Technician alerts do not suppress the breach email alert, and neither alert has per-unit routing.
-* The app uses Flask's threaded server; use gunicorn for heavier use.
-* Units removed from the layout disappear from status after the 24 h lookback, or immediately
-  after deleting their bronze rows and fully refreshing the pipeline.
+* Alerts have no per-unit routing, and a technician alert does not suppress the breach alert.
+* The breach-risk model is trained on synthetic data, scoring is not scheduled, and no maintenance
+  actions are recorded yet, so the model cannot learn from repairs.
+* The app runs on Dash's built-in server; use gunicorn for heavier use.
