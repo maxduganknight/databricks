@@ -38,6 +38,31 @@ app = Dash(
 )
 server = app.server
 
+# Optional usage tracking (dbdemos-tracker): every page view is counted; the email is sent only for
+# @databricks.com users, hashed by the library. Disable with DBDEMOS_TRACKER_DISABLED=1.
+DBDEMOS_TRACKER_ID = "pdu-monitoring-predictive-maintenance-3e0d"
+tracker = None
+if os.getenv("DBDEMOS_TRACKER_DISABLED") != "1":
+    try:
+        from databricks.sdk import WorkspaceClient
+        from dbdemos_tracker import Tracker
+
+        tracker = Tracker(org_id=WorkspaceClient().get_workspace_id(), demo_name=DBDEMOS_TRACKER_ID)
+    except Exception as e:  # noqa: BLE001 - tracking is optional and must never break the app
+        log.warning("dbdemos-tracker disabled: %s", e)
+        tracker = None
+
+
+def track_view(app_path: str):
+    """Page-view event (the library posts it in the background); never fails the page."""
+    if tracker is None:
+        return
+    try:
+        email = request.headers.get("X-Forwarded-Email") if has_request_context() else None
+        tracker.track_app_view(user_email=email, app_path=app_path)
+    except Exception as e:  # noqa: BLE001
+        log.warning("dbdemos-tracker event failed: %s", e)
+
 
 def operator() -> str:
     """Signed-in user, from the headers the Databricks Apps proxy forwards."""
@@ -79,12 +104,16 @@ def route(pathname):
     m = UNIT_PATH_RE.match(pathname or "")
     if m:
         page = unit_layout(m.group(1))
+        track_view("/unit")
     elif (pathname or "").rstrip("/") == "/genie":
         page = genie_layout()
+        track_view("/genie")
     elif (pathname or "").rstrip("/") == "/risk":
         page = risk_layout()
+        track_view("/risk")
     else:
         page = monitor_layout()
+        track_view("/")
     return page, f"Signed in as {operator()}"
 
 

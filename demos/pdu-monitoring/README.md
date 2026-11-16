@@ -163,6 +163,14 @@ pytest -q
 Spark tests use an active Databricks session, Databricks Connect, or local PySpark (in that order).
 UI helper tests are skipped if Dash is not installed.
 
+## Data collection
+
+To improve users' experience and this asset's quality, the app reports a usage event when a page is
+opened. This information is captured for product improvement only, not for marketing purposes, and
+doesn't contain PII: the email of Databricks users is hashed, and nobody else's is sent. By using
+this asset, you consent to this data collection. If you wish to disable it, set the environment
+variable `DBDEMOS_TRACKER_DISABLED=1` (e.g. in the app's `config.env` in `resources/app.yml`).
+
 ## Known limitations (prototype)
 
 * Telemetry is synthetic, with a simulated wear model. `R03-S5-P4` runs hot (its breach threshold
@@ -172,3 +180,12 @@ UI helper tests are skipped if Dash is not installed.
 * The breach-risk model is trained on synthetic data, scoring is not scheduled, and no maintenance
   actions are recorded yet, so the model cannot learn from repairs.
 * The app runs on Dash's built-in server; use gunicorn for heavier use.
+
+## Potential improvements
+
+* **Real-time unit readings with [Lakehouse//RT](https://docs.databricks.com/aws/en/compute/sql-warehouse/real-time/)**
+  (Beta): run the unit page's bronze query on a Lakehouse//RT warehouse instead of the serverless
+  warehouse for sub-second, high-concurrency reads straight from the Delta table, still without
+  copying bronze into Lakebase. It is a SQL warehouse type, so the switch is pointing the app's
+  `sql-warehouse` binding at it. Readings are still only as fresh as bronze ingestion (every 5
+  minutes with the synthetic generator), so pair it with a streaming bronze feed for live charts.
