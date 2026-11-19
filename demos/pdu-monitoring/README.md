@@ -8,6 +8,7 @@ predictive-maintenance model that ranks units by breach risk.
 ```
 bronze_pdu_telemetry (1 row / PDU / second)
    |  SDP pipeline (triggered by pdu-refresh every 5 min)
+   +--> pdu_recent_readings (MV, last 60 min, 1 row / PDU / second) --> app unit page
    v
 pdu_minute_stats (1-min windows) + pdu_thresholds
    |                       |
@@ -18,7 +19,8 @@ pdu_latest_status (1 row / PDU) --SNAPSHOT sync--> Lakebase pdu_latest_status_sy
                                                       v
                                      UC ops_history.* (Delta + CDF) --> technician SQL alert
 
-App: monitor (Lakebase) | unit troubleshooting (bronze via warehouse) | breach risk | Ask Genie
+App: monitor (Lakebase) | unit troubleshooting (pdu_recent_readings via warehouse) | breach risk | Ask Genie
+(the app reads only silver / gold tables; it has no grant on bronze)
 ```
 
 ## Configuration
@@ -29,9 +31,10 @@ only references `${var.<name>}`. The ones you are most likely to change:
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `catalog` / `schema` / `bronze_table` | `mdk_demo_catalog` / `pdu_monitoring` / `bronze_pdu_telemetry` | Where bronze and all outputs live |
-| `warehouse_id` | lookup `Serverless Starter Warehouse` | App bronze queries and both alerts |
+| `warehouse_id` | lookup `Serverless Starter Warehouse` | App unit-readings and breach-risk queries and both alerts |
 | `refresh_cron` / `refresh_pause_status` | every 5 min UTC / `UNPAUSED` | `pdu-refresh` schedule |
 | `bronze_retention_days` | `21` | Synthetic bronze retention (enough history for model training) |
+| `recent_readings_retention_minutes` | `60` | Second-level history kept in `pdu_recent_readings`; also caps the unit page's chart windows |
 | `num_racks` / `rack_shelves` / `rack_positions` | `4` / `5` / `5` | Generated layout; also sizes the app grid |
 | `alert_email` / `technician_email` | deploying user | Job-failure and breach mail / "Alert technician" mail |
 | `breach_alert_pause_status` | `UNPAUSED` (`PAUSED` in dev) | Schedule state of both SQL alerts |
@@ -66,6 +69,10 @@ Thresholds live in `src/sql/pdu_thresholds_seed.csv`, not `config.yml`. Override
 
 * **`bronze_pdu_telemetry`**: per-second voltage, current, power, temperature and humidity, clustered
   by `(unit_id, event_ts)`. Not bundle-managed, so `bundle destroy` never drops it.
+* **`pdu_recent_readings`** (materialized view, silver): the last `recent_readings_retention_minutes`
+  (60) of second-level readings per PDU as of each pipeline update, implausible readings nulled.
+  Filtering on `event_ts >= current_timestamp() - window` keeps it bounded with no trim step, and
+  it refreshes incrementally. Source of the app's unit charts.
 * **`pdu_minute_stats`** (streaming table): 1-minute windows per PDU.
 * **`pdu_latest_status`** (materialized view): one row per PDU with `status` (OK / WARN / BREACH),
   breached / warned metrics, `severity_score`, `breach_started_ts`, `is_stale` and resolved thresholds.
@@ -94,7 +101,8 @@ republishes `pdu_thresholds`. Rules are per metric (`voltage`, `temperature`) wi
 * **Monitor (`/`)**: KPIs, one tile per PDU by rack (OK / WARN / BREACH, alerted, stale), worst
   offenders. Reads Lakebase only, refreshed every `app_refresh_seconds`.
 * **Unit (`/unit/<unit_id>`)**: second-level voltage and temperature with threshold bands, "Alert
-  technician" and notes. Queries bronze via the warehouse on demand (auto-refresh only while in BREACH).
+  technician" and notes. Queries `pdu_recent_readings` via the warehouse on demand (windows of 15, 30
+  or 60 minutes; auto-refresh only while in BREACH).
 * **Breach risk (`/risk`)**: latest model ranking, filterable by band, linking to each unit page.
 * **Ask Genie (`/genie`)**: natural-language questions over the PDU tables, as the signed-in user.
 
@@ -130,14 +138,15 @@ databricks bundle run pdu_app -t dev                   # deploy / start the app
 ```
 
 First deploy on a new workspace: the synced table needs `pdu_latest_status`, and the app binds to
-`pdu_breach_risk_predictions`. If deploy fails on either, run the generator and a pipeline update
+`pdu_recent_readings` and `pdu_breach_risk_predictions`. If deploy fails on either, run the generator and a pipeline update
 (`databricks bundle run pdu_monitoring -t dev`), and the training and scoring notebooks, then deploy
 again. For `prod`, deploy and run with `-t prod`, ideally from CI as a service principal.
 
 ### Schedules and cost
 
 * **`pdu-refresh`** runs every 5 minutes on serverless (about 3-4 minutes per run), skips a tick
-  rather than queueing, and emails on failure or slow runs. The app lags bronze by about 3-8 minutes.
+  rather than queueing, and emails on failure or slow runs. The app lags bronze by about 3-8 minutes
+  (unit charts included, since they read the pipeline's `pdu_recent_readings`).
   It is the largest cost: about $35-45 a day at list price in dev.
 * **Both SQL alerts** evaluate every 5 minutes on the warehouse and are paused in dev; enable with
   `--var breach_alert_pause_status=UNPAUSED`.
@@ -184,8 +193,8 @@ variable `DBDEMOS_TRACKER_DISABLED=1` (e.g. in the app's `config.env` in `resour
 ## Potential improvements
 
 * **Real-time unit readings with [Lakehouse//RT](https://docs.databricks.com/aws/en/compute/sql-warehouse/real-time/)**
-  (Beta): run the unit page's bronze query on a Lakehouse//RT warehouse instead of the serverless
-  warehouse for sub-second, high-concurrency reads straight from the Delta table, still without
-  copying bronze into Lakebase. It is a SQL warehouse type, so the switch is pointing the app's
-  `sql-warehouse` binding at it. Readings are still only as fresh as bronze ingestion (every 5
-  minutes with the synthetic generator), so pair it with a streaming bronze feed for live charts.
+  (Beta): run the unit page's `pdu_recent_readings` query on a Lakehouse//RT warehouse instead of
+  the serverless warehouse for sub-second, high-concurrency reads straight from the Delta table,
+  without copying readings into Lakebase. It is a SQL warehouse type, so the switch is pointing the
+  app's `sql-warehouse` binding at it. Readings are still only as fresh as the pipeline (every 5
+  minutes), so pair it with a streaming bronze feed and a continuous pipeline for live charts.

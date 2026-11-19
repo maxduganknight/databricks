@@ -3,11 +3,13 @@
 Pages
 * /                 rack grid + KPIs + worst offenders, refreshed from Lakebase every REFRESH_SECONDS.
 * /risk             breach-risk ranking from the latest predictive-maintenance batch (SQL warehouse, cached).
-* /unit/<unit_id>   troubleshooting: second-level bronze for that unit only (SQL warehouse, cached),
-                    threshold bands, alert technician, unit notes (Lakebase).
+* /unit/<unit_id>   troubleshooting: second-level readings for that unit only from the silver
+                    pdu_recent_readings table (last hour; SQL warehouse, cached), threshold bands,
+                    alert technician, unit notes (Lakebase).
 
-Bronze is never queried by the monitoring page; on the unit page it is queried on open, on window
-change / Refresh, and auto-refreshed only while the unit is in BREACH.
+The app only reads silver / gold tables, never bronze. pdu_recent_readings is not queried by the
+monitoring page; on the unit page it is queried on open, on window change / Refresh, and
+auto-refreshed only while the unit is in BREACH.
 """
 
 import logging
@@ -26,7 +28,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 log = logging.getLogger("pdu-monitor")
 
 REFRESH_MS = int(os.getenv("REFRESH_SECONDS", "30")) * 1000
-BREACH_BRONZE_REFRESH_MS = int(os.getenv("BREACH_BRONZE_REFRESH_SECONDS", "60")) * 1000
+BREACH_READINGS_REFRESH_MS = int(os.getenv("BREACH_READINGS_REFRESH_SECONDS", "60")) * 1000
 UNIT_PATH_RE = re.compile(r"^/unit/([A-Za-z0-9_-]{1,64})/?$")
 
 app = Dash(
@@ -255,7 +257,7 @@ def unit_layout(unit_id: str):
             dcc.Store(id="ts-unit", data=unit_id),
             dcc.Store(id="ts-ops-version", data=0),
             dcc.Interval(id="ts-status-tick", interval=REFRESH_MS),  # Lakebase only
-            dcc.Interval(id="ts-bronze-tick", interval=BREACH_BRONZE_REFRESH_MS, disabled=True),  # only while BREACH
+            dcc.Interval(id="ts-readings-tick", interval=BREACH_READINGS_REFRESH_MS, disabled=True),  # only while BREACH
             dcc.Link("< Back to racks", href="/", className="small"),
             html.Div(id="ts-header", className="my-2"),
             dbc.Row(
@@ -264,7 +266,7 @@ def unit_layout(unit_id: str):
                         dcc.Dropdown(
                             id="ts-window",
                             options=[{"label": f"Last {m} min", "value": m} for m in data.ALLOWED_WINDOWS_MIN],
-                            value=30,
+                            value=data.DEFAULT_WINDOW_MIN,
                             clearable=False,
                         ),
                         md=2,
@@ -358,7 +360,7 @@ def _header(s: dict):
 
 @app.callback(
     Output("ts-header", "children"),
-    Output("ts-bronze-tick", "disabled"),
+    Output("ts-readings-tick", "disabled"),
     Output("alert-btn", "disabled"),
     Output("alert-state", "children"),
     Input("ts-unit", "data"),
@@ -389,21 +391,21 @@ def refresh_unit_status(unit_id, _tick, _ops):
     Input("ts-unit", "data"),
     Input("ts-window", "value"),
     Input("ts-refresh", "n_clicks"),
-    Input("ts-bronze-tick", "n_intervals"),
+    Input("ts-readings-tick", "n_intervals"),
 )
 def refresh_unit_charts(unit_id, minutes, _clicks, _tick):
     try:
         s = data.unit_status(unit_id) or {}
-        df, age = data.bronze_window(unit_id, minutes)
+        df, age = data.readings_window(unit_id, minutes)
     except Exception as e:  # noqa: BLE001
-        log.exception("bronze query failed")
-        return {}, {}, f"Bronze query failed: {type(e).__name__}: {e}"
+        log.exception("readings query failed")
+        return {}, {}, f"Readings query failed: {type(e).__name__}: {e}"
     b = lambda m: tuple(s.get(f"{m}_{k}") for k in ("breach_min", "warn_min", "warn_max", "breach_max"))
     start = s.get("breach_started_ts") if s.get("status") == "BREACH" else None
     v = ui.metric_figure(df, "voltage_v", "Voltage", "V", b("voltage"), start)
     t = ui.metric_figure(df, "temperature_c", "Temperature", "C", b("temperature"), start)
     auto = " - auto-refreshing while in breach" if s.get("status") == "BREACH" else ""
-    return v, t, f"{len(df):,} second-level readings from bronze (cached {int(age)}s ago){auto}"
+    return v, t, f"{len(df):,} second-level readings from pdu_recent_readings (cached {int(age)}s ago){auto}"
 
 
 @app.callback(

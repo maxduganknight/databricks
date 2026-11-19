@@ -16,7 +16,9 @@ Tick each item after a fresh deploy (or after changes to the relevant part). Com
 
 ## Pipeline
 
-- [ ] `pdu-monitoring-pipeline` update completes; `pdu_minute_stats`, `pdu_latest_status`, `pdu_thresholds` exist
+- [ ] `pdu-monitoring-pipeline` update completes; `pdu_minute_stats`, `pdu_latest_status`, `pdu_thresholds`, `pdu_recent_readings` exist
+- [ ] After a `pdu_refresh` run, `pdu_recent_readings` (materialized view) has 100 distinct `unit_id`s and `min(event_ts)` is ~60 min before the update time (no older)
+- [ ] Event log `planning_information` for `pdu_recent_readings` shows an incremental technique after the first update, not `COMPLETE_RECOMPUTE` every time
 - [ ] `pdu_latest_status` has exactly one row per unit; `pdu_thresholds` has one row per CSV line
 - [ ] Expectation metrics in the event log: `plausible_voltage` / `plausible_temperature` show failures
       (the generator injects faults), `has_unit_id` / `has_event_ts` show none
@@ -40,11 +42,11 @@ Tick each item after a fresh deploy (or after changes to the relevant part). Com
 ## App
 
 - [ ] App deployment `SUCCEEDED` and the app is `RUNNING`
-- [ ] App service principal has `USE CATALOG`, `USE SCHEMA` and `SELECT` on the bronze table
+- [ ] App service principal has `USE CATALOG`, `USE SCHEMA` and `SELECT` on `pdu_recent_readings`, and NO grant on the bronze table (`SHOW GRANTS ON TABLE <bronze>`)
 - [ ] Monitoring page: 4 rack cards stacked vertically, 5 x 5 landscape tiles each, KPIs add up to 100
 - [ ] Rack filter limits grid, KPIs and offenders to the selected racks
-- [ ] Clicking a tile opens `/unit/<unit_id>` with voltage and temperature charts and threshold bands
-- [ ] Breach markers on the chart match a bronze count of readings beyond the breach bound
+- [ ] Clicking a tile opens `/unit/<unit_id>` with voltage and temperature charts and threshold bands; window options are 15 / 30 / 60 min and the info line says "from pdu_recent_readings"
+- [ ] Breach markers on the chart match a `pdu_recent_readings` count of readings beyond the breach bound
 - [ ] Healthy unit: charts do not auto-refresh; breached unit: "auto-refreshing while in breach" shown
 - [ ] Acknowledge a breach: tile turns dark red / ACK, unacknowledged count drops, ack shows your email
 - [ ] A new breach episode on the same unit shows as unacknowledged again

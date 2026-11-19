@@ -17,14 +17,15 @@ resources:
             database: ${resources.postgres_databases.pdu_db.name}
             permission: CAN_CONNECT_AND_CREATE
         - name: sql-warehouse
-          description: Warehouse for on-demand single-unit bronze queries
+          description: Warehouse for on-demand single-unit readings and breach-risk queries
           sql_warehouse:
             id: ${var.warehouse_id}
             permission: CAN_USE
-        - name: bronze-table
-          description: Second-level telemetry, read only for the troubleshooting page
+        # The app reads silver / gold only; it has no grant on the bronze table.
+        - name: recent-readings-table
+          description: Last hour of second-level readings (silver), read only for the troubleshooting page
           uc_securable:
-            securable_full_name: ${var.catalog}.${var.schema}.${var.bronze_table}
+            securable_full_name: ${var.catalog}.${var.schema}.pdu_recent_readings
             securable_type: TABLE
             permission: SELECT
         # Genie runs SQL as the app SP, so it needs SELECT on every table in the Genie space.
@@ -63,8 +64,10 @@ resources:
             value_from: lakebase
           - name: DATABRICKS_WAREHOUSE_ID
             value_from: sql-warehouse
-          - name: BRONZE_TABLE
-            value: ${var.catalog}.${var.schema}.${var.bronze_table}
+          - name: RECENT_READINGS_TABLE
+            value: ${var.catalog}.${var.schema}.pdu_recent_readings
+          - name: RECENT_READINGS_MINUTES
+            value: ${var.recent_readings_retention_minutes}
           - name: PREDICTIONS_TABLE
             value: ${var.catalog}.${var.schema}.pdu_breach_risk_predictions
           - name: LB_SYNCED_SCHEMA
@@ -76,12 +79,12 @@ resources:
           # Tunables from config.yml (redeploy the app with `bundle run pdu_app` to apply).
           - name: REFRESH_SECONDS
             value: ${var.app_refresh_seconds}
-          - name: BREACH_BRONZE_REFRESH_SECONDS
-            value: ${var.app_breach_bronze_refresh_seconds}
+          - name: BREACH_READINGS_REFRESH_SECONDS
+            value: ${var.app_breach_readings_refresh_seconds}
           - name: STATUS_CACHE_SECONDS
             value: ${var.app_status_cache_seconds}
-          - name: BRONZE_CACHE_SECONDS
-            value: ${var.app_bronze_cache_seconds}
+          - name: READINGS_CACHE_SECONDS
+            value: ${var.app_readings_cache_seconds}
           - name: STALE_AFTER_MINUTES
             value: ${var.app_stale_after_minutes}
           - name: RACK_SHELVES
