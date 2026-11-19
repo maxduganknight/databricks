@@ -1,7 +1,8 @@
 """Data access for the app.
 
 * Lakebase (cheap, polled): synced pdu_latest_status + operator-state tables (technician_alerts, notes).
-* SQL warehouse (on demand only): second-level bronze for ONE unit over a short window, cached.
+* SQL warehouse (on demand only): second-level readings for ONE unit over a short window from the silver
+  pdu_recent_readings table (last hour only), plus breach-risk predictions; cached. The app never reads bronze.
 
 All access uses the app's service principal. Identifiers come from env vars set by the bundle and are
 validated; all values are bound as query parameters.
@@ -21,17 +22,21 @@ import db
 
 log = logging.getLogger(__name__)
 
-BRONZE_TABLE = os.getenv("BRONZE_TABLE", "")
-# Breach-risk predictions from the 12-hourly scoring job; defaults to the bronze table's schema.
+RECENT_READINGS_TABLE = os.getenv("RECENT_READINGS_TABLE", "")
+# pdu_recent_readings only holds this many minutes (materialized view window), so longer chart windows would be truncated.
+RECENT_READINGS_MINUTES = int(os.getenv("RECENT_READINGS_MINUTES", "60"))
+# Breach-risk predictions from the 12-hourly scoring job; defaults to the readings table's schema.
 PREDICTIONS_TABLE = os.getenv("PREDICTIONS_TABLE") or (
-    BRONZE_TABLE.rsplit(".", 1)[0] + ".pdu_breach_risk_predictions" if BRONZE_TABLE.count(".") == 2 else "")
+    RECENT_READINGS_TABLE.rsplit(".", 1)[0] + ".pdu_breach_risk_predictions"
+    if RECENT_READINGS_TABLE.count(".") == 2 else "")
 PREDICTIONS_TTL_S = int(os.getenv("PREDICTIONS_CACHE_SECONDS", "300"))
 WAREHOUSE_ID = os.getenv("DATABRICKS_WAREHOUSE_ID", "")
 STATUS_TTL_S = int(os.getenv("STATUS_CACHE_SECONDS", "10"))
-BRONZE_TTL_S = int(os.getenv("BRONZE_CACHE_SECONDS", "60"))
+READINGS_TTL_S = int(os.getenv("READINGS_CACHE_SECONDS", "60"))
 # Pipeline runs every 5 min and lags ~2-3 min behind bronze, so anything older than this is stale.
 STALE_AFTER_MIN = int(os.getenv("STALE_AFTER_MINUTES", "15"))
-ALLOWED_WINDOWS_MIN = (15, 30, 60, 120)
+ALLOWED_WINDOWS_MIN = tuple(m for m in (15, 30, 60, 120) if m <= RECENT_READINGS_MINUTES) or (RECENT_READINGS_MINUTES,)
+DEFAULT_WINDOW_MIN = 30 if 30 in ALLOWED_WINDOWS_MIN else ALLOWED_WINDOWS_MIN[0]
 # Physical rack layout shown on the monitoring page (shelves x positions per rack).
 RACK_SHELVES = int(os.getenv("RACK_SHELVES", "5"))
 RACK_POSITIONS = int(os.getenv("RACK_POSITIONS", "5"))
@@ -176,7 +181,7 @@ def add_note(unit_id: str, author: str, note: str) -> None:
     db.execute(q, (unit_id, author, note))
 
 
-# --------------------------------------------------------------------------- bronze via SQL warehouse
+# --------------------------------------------------------------------------- silver / gold via SQL warehouse
 def _warehouse_connection():
     from databricks import sql as dbsql
     from databricks.sdk.core import Config
@@ -189,12 +194,12 @@ def _warehouse_connection():
     )
 
 
-def _query_bronze(unit_id: str, minutes: int) -> pd.DataFrame:
-    if not _TABLE_RE.match(BRONZE_TABLE):
-        raise ValueError(f"Invalid BRONZE_TABLE: {BRONZE_TABLE!r}")
+def _query_recent_readings(unit_id: str, minutes: int) -> pd.DataFrame:
+    if not _TABLE_RE.match(RECENT_READINGS_TABLE):
+        raise ValueError(f"Invalid RECENT_READINGS_TABLE: {RECENT_READINGS_TABLE!r}")
     query = (
         "SELECT event_ts, voltage_v, temperature_c, current_a, power_kw "
-        f"FROM {BRONZE_TABLE} "
+        f"FROM {RECENT_READINGS_TABLE} "
         "WHERE unit_id = :unit_id "
         "AND event_ts >= timestampadd(MINUTE, -CAST(:minutes AS INT), current_timestamp()) "
         "ORDER BY event_ts"
@@ -204,7 +209,7 @@ def _query_bronze(unit_id: str, minutes: int) -> pd.DataFrame:
         cur.execute(query, {"unit_id": unit_id, "minutes": int(minutes)})
         rows = cur.fetchall()
         cols = [d[0] for d in cur.description]
-    log.info("bronze query unit=%s minutes=%s rows=%s %.1fs", unit_id, minutes, len(rows), time.monotonic() - t0)
+    log.info("readings query unit=%s minutes=%s rows=%s %.1fs", unit_id, minutes, len(rows), time.monotonic() - t0)
     df = pd.DataFrame([tuple(r) for r in rows], columns=cols)
     if not df.empty:
         df["event_ts"] = pd.to_datetime(df["event_ts"], utc=True)
@@ -238,10 +243,11 @@ def latest_predictions():
     return df, time.monotonic() - loaded_at
 
 
-def bronze_window(unit_id: str, minutes: int):
-    """Second-level telemetry for one unit. Returns (DataFrame, cache_age_seconds)."""
+def readings_window(unit_id: str, minutes: int):
+    """Second-level readings for one unit from pdu_recent_readings. Returns (DataFrame, cache_age_seconds)."""
     if not valid_unit_id(unit_id):
         raise ValueError("invalid unit id")
-    minutes = minutes if minutes in ALLOWED_WINDOWS_MIN else 30
-    df, loaded_at = _cache.get_or_load(("bronze", unit_id, minutes), BRONZE_TTL_S, lambda: _query_bronze(unit_id, minutes))
+    minutes = minutes if minutes in ALLOWED_WINDOWS_MIN else DEFAULT_WINDOW_MIN
+    df, loaded_at = _cache.get_or_load(
+        ("readings", unit_id, minutes), READINGS_TTL_S, lambda: _query_recent_readings(unit_id, minutes))
     return df, time.monotonic() - loaded_at

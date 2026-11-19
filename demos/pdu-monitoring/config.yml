@@ -27,7 +27,7 @@ variables:
     description: Name (within catalog.schema) of the second-level bronze telemetry table.
     default: bronze_pdu_telemetry
   warehouse_id:
-    description: SQL warehouse for the app's bronze troubleshooting queries and the breach alert (looked up by name).
+    description: SQL warehouse for the app's unit troubleshooting and breach-risk queries and the SQL alerts (looked up by name).
     lookup:
       warehouse: Serverless Starter Warehouse
 
@@ -95,6 +95,12 @@ variables:
   pipeline_stale_after_minutes:
     description: A unit is stale when its newest minute lags the fleet by more than this.
     default: "3"
+  recent_readings_retention_minutes:
+    description: >-
+      Minutes of second-level readings kept in the pdu_recent_readings materialized view (the app's
+      unit troubleshooting source), counted back from each pipeline update. The app only offers
+      chart windows up to this length.
+    default: "60"
 
   # ------------------------------------------------------------------ ops history (technician alerts + unit notes → UC Delta)
   ops_history_schema:
@@ -143,14 +149,14 @@ variables:
   app_refresh_seconds:
     description: Monitoring page / unit status refresh interval.
     default: "30"
-  app_breach_bronze_refresh_seconds:
-    description: Unit page bronze auto-refresh interval, only while the unit is in BREACH.
+  app_breach_readings_refresh_seconds:
+    description: Unit page readings auto-refresh interval, only while the unit is in BREACH.
     default: "60"
   app_status_cache_seconds:
     description: Cache for the Lakebase status query, shared across users.
     default: "10"
-  app_bronze_cache_seconds:
-    description: Cache for single-unit bronze queries, shared across users.
+  app_readings_cache_seconds:
+    description: Cache for single-unit pdu_recent_readings queries, shared across users.
     default: "60"
   app_stale_after_minutes:
     description: App marks a unit stale when its newest reading is older than this.

@@ -1,4 +1,5 @@
-# Spark Declarative Pipeline: bronze (second-level) -> pdu_minute_stats -> pdu_latest_status (+ pdu_thresholds).
+# Spark Declarative Pipeline: bronze (second-level) -> pdu_minute_stats -> pdu_latest_status (+ pdu_thresholds),
+# and bronze -> pdu_recent_readings (last hour of second-level readings for the app's unit page).
 # Triggered (not continuous): the refresh job runs it every 5 minutes; serverless keeps it cheap.
 resources:
   pipelines:
@@ -24,6 +25,7 @@ resources:
         pdu.watermark: ${var.watermark}
         pdu.status_lookback_hours: ${var.status_lookback_hours}
         pdu.stale_after_minutes: ${var.pipeline_stale_after_minutes}
+        pdu.recent_readings_minutes: ${var.recent_readings_retention_minutes}
       notifications:
         - email_recipients:
             - ${var.alert_email}

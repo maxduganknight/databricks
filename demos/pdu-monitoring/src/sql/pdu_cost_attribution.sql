@@ -2,7 +2,7 @@
 -- Covers everything tagged project = pdu-monitoring:
 --   * jobs (bundle tags + serverless usage policy), pipeline and app (usage policy),
 --     Lakebase project (custom_tags in lakebase.yml).
--- Not covered: the shared Serverless Starter Warehouse (alerts, app bronze queries, Genie).
+-- Not covered: the shared Serverless Starter Warehouse (alerts, app unit-readings and breach-risk queries, Genie).
 -- system.billing.usage lags a few hours; list_cost_usd is at list price, before discounts.
 SELECT
   u.usage_date,
