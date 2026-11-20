@@ -1,0 +1,7 @@
+resources:
+  dashboards:
+    t_commercial_overview:
+      display_name: T Commercial Overview
+      file_path: ../src/dashboards/t_commercial_overview.lvdash.json
+      warehouse_id: ${var.warehouse_id}
+      embed_credentials: true

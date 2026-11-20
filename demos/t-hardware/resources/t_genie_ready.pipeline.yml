@@ -1,0 +1,13 @@
+resources:
+  pipelines:
+    t_genie_ready:
+      name: t_genie_ready
+      catalog: ${var.catalog}
+      schema: t_hardware                 # single schema; layers are table-name prefixes (bronze_/silver_/gold_)
+      serverless: true
+      continuous: false
+      channel: current
+      root_path: ../src/pipelines/t_genie_ready
+      libraries:
+        - glob:
+            include: ../src/pipelines/t_genie_ready/transformations/**

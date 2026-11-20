@@ -1,0 +1,989 @@
+{
+  "datasets": [
+    {
+      "name": "sales",
+      "displayName": "Sales metrics (t_sales_metrics)",
+      "asset_name": "mdk_demo_catalog.t_hardware.t_sales_metrics"
+    },
+    {
+      "name": "inventory",
+      "displayName": "Inventory position",
+      "config": {
+        "version": "1.1",
+        "source": "mdk_demo_catalog.t_hardware.gold_inventory_position",
+        "dimensions": [
+          {
+            "expr": "warehouse"
+          },
+          {
+            "expr": "category"
+          },
+          {
+            "expr": "stock_status"
+          }
+        ],
+        "measures": [
+          {
+            "name": "inventory_value",
+            "expr": "SUM(inventory_value_cad)",
+            "format": {
+              "type": "currency",
+              "currencyCode": "CAD",
+              "abbreviation": "compact",
+              "decimalPlaces": {
+                "type": "max",
+                "places": 1.0
+              }
+            }
+          },
+          {
+            "name": "skus_below_reorder",
+            "expr": "COUNT(1) FILTER (WHERE below_reorder_point)"
+          },
+          {
+            "name": "sku_count",
+            "expr": "COUNT(1)"
+          }
+        ]
+      }
+    },
+    {
+      "name": "price_gap",
+      "displayName": "Competitor price gap",
+      "config": {
+        "version": "1.1",
+        "source": "mdk_demo_catalog.t_hardware.gold_price_benchmark_by_competitor",
+        "dimensions": [
+          {
+            "expr": "category"
+          },
+          {
+            "expr": "competitor_name"
+          }
+        ],
+        "measures": [
+          {
+            "name": "avg_pct_gap",
+            "expr": "AVG(pct_gap)",
+            "format": {
+              "type": "percentage",
+              "decimalPlaces": {
+                "type": "exact",
+                "places": 1.0
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "tickets",
+      "displayName": "HubSpot ticket insights",
+      "config": {
+        "version": "1.1",
+        "source": "mdk_demo_catalog.t_hardware.gold_ticket_insights",
+        "dimensions": [
+          {
+            "expr": "theme"
+          },
+          {
+            "expr": "created_date"
+          },
+          {
+            "expr": "region"
+          },
+          {
+            "expr": "warehouse"
+          },
+          {
+            "expr": "category"
+          }
+        ],
+        "measures": [
+          {
+            "name": "tickets",
+            "expr": "COUNT(1)"
+          },
+          {
+            "name": "open_tickets",
+            "expr": "COUNT(1) FILTER (WHERE is_open)"
+          }
+        ]
+      }
+    },
+    {
+      "name": "overpriced",
+      "displayName": "SKUs >10% above cheapest competitor",
+      "queryLines": [
+        "SELECT sku, product_name, category, t_list_price_cad, competitor_min_price_cad, cheapest_competitor, pct_gap_vs_min\n",
+        "FROM mdk_demo_catalog.t_hardware.gold_price_benchmark\n",
+        "WHERE pct_gap_vs_min > 0.10\n",
+        "ORDER BY pct_gap_vs_min DESC"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "overview",
+      "displayName": "Commercial Overview",
+      "layout": [
+        {
+          "widget": {
+            "name": "title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## T Industries - Commercial Overview\n",
+                "Governed metrics from `t_sales_metrics` (net sales = gross - discounts - returns, CAD). Use **Ask Genie** (T Sales & Ops) for follow-up questions."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 8,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "f_region",
+            "queries": [
+              {
+                "name": "fq",
+                "query": {
+                  "datasetName": "sales",
+                  "fields": [
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "frame": {
+                "title": "Region",
+                "showTitle": true
+              },
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "region",
+                    "queryName": "fq",
+                    "displayName": "Region"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 0,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "f_date",
+            "queries": [
+              {
+                "name": "fq",
+                "query": {
+                  "datasetName": "sales",
+                  "fields": [
+                    {
+                      "name": "order_date",
+                      "expression": "`order_date`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-date-range-picker",
+              "frame": {
+                "title": "Order date",
+                "showTitle": true
+              },
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "order_date",
+                    "queryName": "fq",
+                    "displayName": "Order date"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 10,
+            "y": 0,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_net_sales",
+            "queries": [
+              {
+                "name": "main",
+                "query": {
+                  "datasetName": "sales",
+                  "fields": [
+                    {
+                      "name": "net_sales",
+                      "expression": "MEASURE(`net_sales`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "frame": {
+                "title": "Net sales",
+                "showTitle": true
+              },
+              "encodings": {
+                "value": {
+                  "fieldName": "net_sales",
+                  "displayName": "Net sales",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "CAD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_gm",
+            "queries": [
+              {
+                "name": "main",
+                "query": {
+                  "datasetName": "sales",
+                  "fields": [
+                    {
+                      "name": "gm_pct",
+                      "expression": "MEASURE(`gross_margin_pct`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "frame": {
+                "title": "Gross margin %",
+                "showTitle": true
+              },
+              "encodings": {
+                "value": {
+                  "fieldName": "gm_pct",
+                  "displayName": "Gross margin %",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_units",
+            "queries": [
+              {
+                "name": "main",
+                "query": {
+                  "datasetName": "sales",
+                  "fields": [
+                    {
+                      "name": "units",
+                      "expression": "MEASURE(`units_shipped`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "frame": {
+                "title": "Units shipped",
+                "showTitle": true
+              },
+              "encodings": {
+                "value": {
+                  "fieldName": "units",
+                  "displayName": "Units shipped",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_bo",
+            "queries": [
+              {
+                "name": "main",
+                "query": {
+                  "datasetName": "sales",
+                  "fields": [
+                    {
+                      "name": "bo_rate",
+                      "expression": "MEASURE(`backorder_rate`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "frame": {
+                "title": "Backorder rate (target < 5%)",
+                "showTitle": true
+              },
+              "encodings": {
+                "value": {
+                  "fieldName": "bo_rate",
+                  "displayName": "Backorder rate",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "sales_trend",
+            "queries": [
+              {
+                "name": "main",
+                "query": {
+                  "datasetName": "sales",
+                  "fields": [
+                    {
+                      "name": "month",
+                      "expression": "DATE_TRUNC('MONTH', `order_date`)"
+                    },
+                    {
+                      "name": "net_sales",
+                      "expression": "MEASURE(`net_sales`)"
+                    },
+                    {
+                      "name": "gm_pct",
+                      "expression": "MEASURE(`gross_margin_pct`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "combo",
+              "frame": {
+                "title": "Monthly net sales and gross margin %",
+                "showTitle": true
+              },
+              "encodings": {
+                "x": {
+                  "fieldName": "month",
+                  "displayName": "Month",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "primary": {
+                    "scale": {
+                      "type": "quantitative"
+                    },
+                    "fields": [
+                      {
+                        "fieldName": "net_sales",
+                        "displayName": "Net sales (CAD)"
+                      }
+                    ]
+                  },
+                  "secondary": {
+                    "scale": {
+                      "type": "quantitative"
+                    },
+                    "fields": [
+                      {
+                        "fieldName": "gm_pct",
+                        "displayName": "Gross margin %"
+                      }
+                    ]
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 7,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "margin_by_category",
+            "queries": [
+              {
+                "name": "main",
+                "query": {
+                  "datasetName": "sales",
+                  "fields": [
+                    {
+                      "name": "category",
+                      "expression": "`category`"
+                    },
+                    {
+                      "name": "gm_pct",
+                      "expression": "MEASURE(`gross_margin_pct`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "frame": {
+                "title": "Gross margin % by category",
+                "showTitle": true
+              },
+              "encodings": {
+                "x": {
+                  "fieldName": "gm_pct",
+                  "displayName": "Gross margin %",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "y": {
+                  "fieldName": "category",
+                  "displayName": "Category",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "measure-reversed",
+                      "measure": {
+                        "fieldName": "gm_pct"
+                      }
+                    }
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main"
+              }
+            }
+          },
+          "position": {
+            "x": 7,
+            "y": 5,
+            "width": 5,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "inventory_by_wh",
+            "queries": [
+              {
+                "name": "main",
+                "query": {
+                  "datasetName": "inventory",
+                  "fields": [
+                    {
+                      "name": "warehouse",
+                      "expression": "`warehouse`"
+                    },
+                    {
+                      "name": "stock_status",
+                      "expression": "`stock_status`"
+                    },
+                    {
+                      "name": "inv_value",
+                      "expression": "MEASURE(`inventory_value`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "frame": {
+                "title": "Inventory value by warehouse and stock status",
+                "showTitle": true
+              },
+              "encodings": {
+                "x": {
+                  "fieldName": "warehouse",
+                  "displayName": "Warehouse",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "inv_value",
+                  "displayName": "Inventory value (CAD)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "stock_status",
+                  "displayName": "Stock status",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              },
+              "mark": {
+                "layout": "stack"
+              },
+              "data": {
+                "queryName": "main"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 4,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "backorder_heat",
+            "queries": [
+              {
+                "name": "main",
+                "query": {
+                  "datasetName": "sales",
+                  "fields": [
+                    {
+                      "name": "warehouse",
+                      "expression": "`warehouse`"
+                    },
+                    {
+                      "name": "category",
+                      "expression": "`category`"
+                    },
+                    {
+                      "name": "bo_rate",
+                      "expression": "MEASURE(`backorder_rate`)"
+                    }
+                  ],
+                  "filters": [
+                    {
+                      "expression": "`order_date` >= add_months(current_date(), -3)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "heatmap",
+              "frame": {
+                "title": "Backorder rate, last 3 months",
+                "showTitle": true
+              },
+              "encodings": {
+                "x": {
+                  "fieldName": "warehouse",
+                  "displayName": "Warehouse",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "category",
+                  "displayName": "Category",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "color": {
+                  "fieldName": "bo_rate",
+                  "displayName": "Backorder rate",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 12,
+            "width": 3,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "price_gap_heat",
+            "queries": [
+              {
+                "name": "main",
+                "query": {
+                  "datasetName": "price_gap",
+                  "fields": [
+                    {
+                      "name": "competitor_name",
+                      "expression": "`competitor_name`"
+                    },
+                    {
+                      "name": "category",
+                      "expression": "`category`"
+                    },
+                    {
+                      "name": "gap",
+                      "expression": "MEASURE(`avg_pct_gap`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "heatmap",
+              "frame": {
+                "title": "Avg price gap vs competitor (positive = T more expensive)",
+                "showTitle": true
+              },
+              "encodings": {
+                "x": {
+                  "fieldName": "competitor_name",
+                  "displayName": "Competitor",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "category",
+                  "displayName": "Category",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "color": {
+                  "fieldName": "gap",
+                  "displayName": "Avg % gap",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main"
+              }
+            }
+          },
+          "position": {
+            "x": 7,
+            "y": 12,
+            "width": 5,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "ticket_themes",
+            "queries": [
+              {
+                "name": "main",
+                "query": {
+                  "datasetName": "tickets",
+                  "fields": [
+                    {
+                      "name": "theme",
+                      "expression": "`theme`"
+                    },
+                    {
+                      "name": "tickets",
+                      "expression": "MEASURE(`tickets`)"
+                    },
+                    {
+                      "name": "open_tickets",
+                      "expression": "MEASURE(`open_tickets`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "frame": {
+                "title": "Top HubSpot ticket themes (ai_classify)",
+                "showTitle": true
+              },
+              "encodings": {
+                "x": {
+                  "fieldName": "tickets",
+                  "displayName": "Tickets",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "y": {
+                  "fieldName": "theme",
+                  "displayName": "Theme",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "measure-reversed",
+                      "measure": {
+                        "fieldName": "tickets"
+                      }
+                    }
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 19,
+            "width": 5,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "overpriced_table",
+            "queries": [
+              {
+                "name": "main",
+                "query": {
+                  "datasetName": "overpriced",
+                  "fields": [
+                    {
+                      "name": "sku",
+                      "expression": "`sku`"
+                    },
+                    {
+                      "name": "product_name",
+                      "expression": "`product_name`"
+                    },
+                    {
+                      "name": "category",
+                      "expression": "`category`"
+                    },
+                    {
+                      "name": "t_list_price_cad",
+                      "expression": "`t_list_price_cad`"
+                    },
+                    {
+                      "name": "competitor_min_price_cad",
+                      "expression": "`competitor_min_price_cad`"
+                    },
+                    {
+                      "name": "cheapest_competitor",
+                      "expression": "`cheapest_competitor`"
+                    },
+                    {
+                      "name": "pct_gap_vs_min",
+                      "expression": "`pct_gap_vs_min`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "frame": {
+                "title": "SKUs priced >10% above the cheapest competitor",
+                "showTitle": true
+              },
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "sku",
+                    "displayName": "SKU"
+                  },
+                  {
+                    "fieldName": "product_name",
+                    "displayName": "Product"
+                  },
+                  {
+                    "fieldName": "category",
+                    "displayName": "Category"
+                  },
+                  {
+                    "fieldName": "t_list_price_cad",
+                    "displayName": "T list (CAD)"
+                  },
+                  {
+                    "fieldName": "competitor_min_price_cad",
+                    "displayName": "Competitor min (CAD)"
+                  },
+                  {
+                    "fieldName": "cheapest_competitor",
+                    "displayName": "Cheapest competitor"
+                  },
+                  {
+                    "fieldName": "pct_gap_vs_min",
+                    "displayName": "% gap",
+                    "format": {
+                      "type": "number-percent",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 1
+                      }
+                    }
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main"
+              }
+            }
+          },
+          "position": {
+            "x": 5,
+            "y": 19,
+            "width": 7,
+            "height": 7
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    }
+  ],
+  "uiSettings": {
+    "genieSpace": {
+      "isEnabled": true,
+      "overrideId": "01f1e50efad71f38813ffdfe90722342",
+      "enablementMode": "ENABLED"
+    }
+  }
+}

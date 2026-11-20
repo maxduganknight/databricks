@@ -1,0 +1,54 @@
+# Daily end-to-end refresh: land/simulate sources -> governance -> SDP pipeline -> semantic layer -> Genie Agents.
+# Runs on serverless. The generator is idempotent (skips if bronze exists unless regenerate=true).
+resources:
+  jobs:
+    t_daily_refresh:
+      name: t_daily_refresh
+      description: T Industries - daily refresh of the TAI backend (bronze -> silver -> gold, docs, metric view, Genie Agents)
+      schedule:
+        quartz_cron_expression: "0 0 6 * * ?"
+        timezone_id: America/Vancouver
+        pause_status: UNPAUSED
+      max_concurrent_runs: 1
+      parameters:
+        - name: catalog
+          default: ${var.catalog}
+        - name: regenerate
+          default: "false"
+      tasks:
+        - task_key: land_sources
+          description: Synthetic ERP / price-scrape / HubSpot / SharePoint data (stands in for Lakeflow Connect)
+          notebook_task:
+            notebook_path: ../src/notebooks/01_generate_synthetic_data.ipynb
+            base_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              regenerate: "{{job.parameters.regenerate}}"
+        - task_key: governance
+          description: Row-filter function + warehouse access mapping used by inventory_position
+          depends_on: [{task_key: land_sources}]
+          notebook_task:
+            notebook_path: ../src/notebooks/02_setup_governance.ipynb
+            base_parameters:
+              catalog: "{{job.parameters.catalog}}"
+        - task_key: t_genie_ready
+          description: SDP pipeline bronze -> silver -> gold + ai_parse_document doc path
+          depends_on: [{task_key: governance}]
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.t_genie_ready.id}
+            full_refresh: false
+        - task_key: semantic_layer
+          description: Metric view t_sales_metrics + identify_product_photo function
+          depends_on: [{task_key: t_genie_ready}]
+          notebook_task:
+            notebook_path: ../src/notebooks/03_semantic_layer.ipynb
+            base_parameters:
+              catalog: "{{job.parameters.catalog}}"
+        - task_key: genie_agents
+          description: Create / update Genie Agents and link T Sales & Ops to the dashboard
+          depends_on: [{task_key: semantic_layer}]
+          notebook_task:
+            notebook_path: ../src/notebooks/04_setup_genie.ipynb
+            base_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              warehouse_id: ${var.warehouse_id}
+              dashboard_name: T Commercial Overview

@@ -1,0 +1,29 @@
+# T Industries - Databricks as the backend for the TAI Teams chatbot.
+# Synthetic ERP / HubSpot / SharePoint data -> SDP pipeline t_genie_ready (bronze -> silver -> gold + ai_parse_document)
+# -> metric view + row filter -> Genie Agents -> AI/BI dashboard. See README.md.
+# Everything lives in one schema <catalog>.t_hardware; layers are table-name prefixes (bronze_, silver_, gold_, gov_),
+# raw files are in the volume <catalog>.t_hardware.landing.
+#
+#   databricks bundle deploy -t dev
+#   databricks bundle run t_daily_refresh -t dev     # data -> governance -> pipeline -> semantic layer -> Genie Agents
+
+bundle:
+  name: t_hardware
+
+include:
+  - resources/*.yml
+
+variables:
+  catalog:
+    description: Unity Catalog catalog that holds the T Industries schema t_hardware
+    default: mdk_demo_catalog
+  warehouse_id:
+    description: SQL warehouse for the dashboard and Genie Agents
+    default: 1f421abc4c14022f
+
+targets:
+  dev:
+    default: true
+    mode: development
+  prod:
+    mode: production
