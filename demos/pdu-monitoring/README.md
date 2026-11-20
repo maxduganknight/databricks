@@ -8,7 +8,7 @@ predictive-maintenance model that ranks units by breach risk.
 ```
 bronze_pdu_telemetry (1 row / PDU / second)
    |  SDP pipeline (triggered by pdu-refresh every 5 min)
-   +--> pdu_recent_readings (MV, last 60 min, 1 row / PDU / second) --> app unit page
+   +--> pdu_recent_readings (view, last 60 min, 1 row / PDU / second) --> app unit page
    v
 pdu_minute_stats (1-min windows) + pdu_thresholds
    |                       |
@@ -69,10 +69,12 @@ Thresholds live in `src/sql/pdu_thresholds_seed.csv`, not `config.yml`. Override
 
 * **`bronze_pdu_telemetry`**: per-second voltage, current, power, temperature and humidity, clustered
   by `(unit_id, event_ts)`. Not bundle-managed, so `bundle destroy` never drops it.
-* **`pdu_recent_readings`** (materialized view, silver): the last `recent_readings_retention_minutes`
-  (60) of second-level readings per PDU as of each pipeline update, implausible readings nulled.
-  Filtering on `event_ts >= current_timestamp() - window` keeps it bounded with no trim step, and
-  it refreshes incrementally. Source of the app's unit charts.
+* **`pdu_recent_readings`** (view, silver, `src/pipeline/transformations/pdu_recent_readings.sql`):
+  the last `recent_readings_retention_minutes` (60) of second-level readings per PDU, evaluated at
+  query time, with only the charted columns (`unit_id`, `event_ts`, voltage, temperature, current,
+  power) and implausible voltage / temperature nulled (same ranges as `pdu_rules.py`). Nothing is
+  stored or refreshed, so it is as fresh as bronze. The app has SELECT on this view only, not on
+  bronze. Source of the app's unit charts.
 * **`pdu_minute_stats`** (streaming table): 1-minute windows per PDU.
 * **`pdu_latest_status`** (materialized view): one row per PDU with `status` (OK / WARN / BREACH),
   breached / warned metrics, `severity_score`, `breach_started_ts`, `is_stale` and resolved thresholds.
@@ -145,8 +147,8 @@ again. For `prod`, deploy and run with `-t prod`, ideally from CI as a service p
 ### Schedules and cost
 
 * **`pdu-refresh`** runs every 5 minutes on serverless (about 3-4 minutes per run), skips a tick
-  rather than queueing, and emails on failure or slow runs. The app lags bronze by about 3-8 minutes
-  (unit charts included, since they read the pipeline's `pdu_recent_readings`).
+  rather than queueing, and emails on failure or slow runs. The app's status lags bronze by about
+  3-8 minutes; the unit charts read bronze through the `pdu_recent_readings` view, so they don't.
   It is the largest cost: about $35-45 a day at list price in dev.
 * **Both SQL alerts** evaluate every 5 minutes on the warehouse and are paused in dev; enable with
   `--var breach_alert_pause_status=UNPAUSED`.
@@ -196,5 +198,5 @@ variable `DBDEMOS_TRACKER_DISABLED=1` (e.g. in the app's `config.env` in `resour
   (Beta): run the unit page's `pdu_recent_readings` query on a Lakehouse//RT warehouse instead of
   the serverless warehouse for sub-second, high-concurrency reads straight from the Delta table,
   without copying readings into Lakebase. It is a SQL warehouse type, so the switch is pointing the
-  app's `sql-warehouse` binding at it. Readings are still only as fresh as the pipeline (every 5
-  minutes), so pair it with a streaming bronze feed and a continuous pipeline for live charts.
+  app's `sql-warehouse` binding at it. Readings are still only as fresh as bronze ingestion (every
+  5 minutes with the synthetic generator), so pair it with a streaming bronze feed for live charts.

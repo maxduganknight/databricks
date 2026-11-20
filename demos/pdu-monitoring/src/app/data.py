@@ -23,7 +23,7 @@ import db
 log = logging.getLogger(__name__)
 
 RECENT_READINGS_TABLE = os.getenv("RECENT_READINGS_TABLE", "")
-# pdu_recent_readings only holds this many minutes (materialized view window), so longer chart windows would be truncated.
+# The pdu_recent_readings view only exposes this many minutes, so longer chart windows would be truncated.
 RECENT_READINGS_MINUTES = int(os.getenv("RECENT_READINGS_MINUTES", "60"))
 # Breach-risk predictions from the 12-hourly scoring job; defaults to the readings table's schema.
 PREDICTIONS_TABLE = os.getenv("PREDICTIONS_TABLE") or (
