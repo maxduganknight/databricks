@@ -17,8 +17,8 @@ Tick each item after a fresh deploy (or after changes to the relevant part). Com
 ## Pipeline
 
 - [ ] `pdu-monitoring-pipeline` update completes; `pdu_minute_stats`, `pdu_latest_status`, `pdu_thresholds`, `pdu_recent_readings` exist
-- [ ] After a `pdu_refresh` run, `pdu_recent_readings` (materialized view) has 100 distinct `unit_id`s and `min(event_ts)` is ~60 min before the update time (no older)
-- [ ] Event log `planning_information` for `pdu_recent_readings` shows an incremental technique after the first update, not `COMPLETE_RECOMPUTE` every time
+- [ ] `pdu_recent_readings` is a VIEW (`information_schema.tables`) with 100 distinct `unit_id`s, `min(event_ts)` ~60 min before now and `max(event_ts)` matching bronze
+- [ ] Its null voltage / temperature counts equal bronze's implausible-reading counts over the same hour
 - [ ] `pdu_latest_status` has exactly one row per unit; `pdu_thresholds` has one row per CSV line
 - [ ] Expectation metrics in the event log: `plausible_voltage` / `plausible_temperature` show failures
       (the generator injects faults), `has_unit_id` / `has_event_ts` show none

@@ -60,7 +60,7 @@
     <rect x="270" y="196" width="200" height="72" rx="8" fill="#eef1f4" stroke="#7d8b97" stroke-width="1.5"/>
     <text x="370" y="218" text-anchor="middle" font-size="13" font-weight="700">Last hour, per second</text>
     <text x="370" y="237" text-anchor="middle" font-size="11" font-family="Menlo, Consolas, monospace">pdu_recent_readings</text>
-    <text x="370" y="255" text-anchor="middle" font-size="10.5" fill="#5f7281">materialized view · last 60 min</text>
+    <text x="370" y="255" text-anchor="middle" font-size="10.5" fill="#5f7281">view · last 60 min</text>
     <path d="M135 290 V232 H268" stroke="#44515c" stroke-width="1.8" fill="none" marker-end="url(#arr)"/>
     <path d="M470 232 H816" stroke="#44515c" stroke-width="1.8" fill="none" marker-end="url(#arr)"/>
     <text x="636" y="224" font-size="10.5" fill="#5f7281">on-demand query · SQL warehouse</text>

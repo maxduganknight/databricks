@@ -97,9 +97,9 @@ variables:
     default: "3"
   recent_readings_retention_minutes:
     description: >-
-      Minutes of second-level readings kept in the pdu_recent_readings materialized view (the app's
-      unit troubleshooting source), counted back from each pipeline update. The app only offers
-      chart windows up to this length.
+      Minutes of second-level readings exposed by the pdu_recent_readings view (the app's unit
+      troubleshooting source), counted back from query time. The app only offers chart windows up
+      to this length.
     default: "60"
 
   # ------------------------------------------------------------------ ops history (technician alerts + unit notes → UC Delta)
