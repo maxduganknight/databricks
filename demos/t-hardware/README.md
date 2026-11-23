@@ -10,13 +10,13 @@ Everything lives in **one schema, `mdk_demo_catalog.t_hardware`**. The layer is 
 
 | Layer | Objects (schema `mdk_demo_catalog.t_hardware`) |
 | --- | --- |
-| Landing | Volume `landing` with `product_images/` (64 PNGs), `sharepoint/` (14 PDF/DOCX + 2 markdown business rules), `hubspot_attachments/` (20 quotes, photos, screenshots), `photo_uploads/` (photos a user "sends" to TAI) |
+| Landing | Volume `landing` with `product_images/` (64 PNGs), `sharepoint/` (14 PDF/DOCX + 2 markdown business rules), `hubspot_attachments/` (20 quotes, photos, screenshots), `photo_uploads/` (9 real customer-style product photos, e.g. Taymor knobs, handlesets and a digital deadbolt, to upload to Genie One during the demo). Volume `knowledge`: the SharePoint library as raw files (16 PDF / DOCX / Markdown), synced from `landing/sharepoint` on every job run and read directly by the T Docs & SOPs agent |
 | Bronze (`bronze_*`) | `bronze_products` (285 SKUs), `bronze_customers` (500), `bronze_sales_orders` / `bronze_order_lines` (24 months, seasonality), `bronze_inventory` (Delta BC, Toronto), `bronze_competitor_prices` (NorthBuild Supply, Pacific Hardware Co, DoorPro Direct), `bronze_hubspot_companies` / `_deals` / `_tickets`, `bronze_hubspot_attachments`, `bronze_sharepoint_files` (Lakeflow Connect shape: file_name, path, modified_time, content BINARY) |
 | Silver (`silver_*`) | Typed, deduplicated tables with standardized SKUs and regions (`silver_products`, `silver_order_lines`, ...), HubSpot tickets joined to ERP orders and themed with `ai_classify` (`silver_hubspot_tickets`), `silver_doc_parsed` (`ai_parse_document` output for every SharePoint and HubSpot binary) and `silver_doc_chunks` (doc_name, source, section, chunk_text, page) |
 | Gold (`gold_*`) | `gold_sales_daily`, `gold_product_margin`, `gold_inventory_position` (row filter), `gold_price_benchmark` (+ `_by_competitor`), `gold_ticket_insights`, `gold_dim_product`, `gold_dim_customer`, `gold_doc_summaries` (`ai_summarize` + `ai_extract`: warranty terms, install steps, policy points) |
-| Semantic layer | Metric view `t_sales_metrics` (net sales, gross margin %, units, ASP, backorder rate, with synonyms), and table function `identify_product_photo(photo_file)` (a vision model reads the photo's label and returns the SKU plus its price benchmark) |
+| Semantic layer | Metric view `t_sales_metrics` (net sales, gross margin %, units, ASP, backorder rate, with synonyms) |
 | Governance (`gov_*`) | Comments on every table and column, PK constraints, pipeline expectations, `layer` tags, and the row filter `gov_warehouse_row_filter` driven by the `gov_warehouse_access` table |
-| Genie | **T Sales & Ops** (gold + metric view + photo function, 8 example SQLs, 5 benchmarks) and **T Docs & SOPs** (`silver_doc_chunks` + `gold_doc_summaries`) |
+| Genie | **T Sales & Ops** (gold tables + metric view; matches a product described by Genie One to our closest SKUs; 8 example SQLs, 7 benchmarks) and **T Docs & SOPs** (raw files in the `knowledge` volume + `gold_ticket_insights` + `gold_dim_product`, the Knowledge Assistant replacement) |
 | Dashboard | **T Commercial Overview**: KPIs, sales trend, margin by category, inventory by warehouse, backorder heatmap, competitor price-gap heatmap, ticket themes, overpriced SKUs. Ask Genie is linked to T Sales & Ops |
 
 ## Repo layout
@@ -56,8 +56,13 @@ The job runs `land_sources` -> `governance` -> `t_genie_ready` (pipeline) -> `se
    * Which SKUs are priced more than 10% above competitors? (Exit devices stand out: about 70% of exit device SKUs are more than 10% above the cheapest competitor.)
    * Top customers by margin in BC last quarter.
    * Why are Toronto door closer backorders so high? (The backorder rate has been about 28% since August, against a 5% target.)
-   * **Photo question**: "What is this product in site_photo_exit_device.png, and how does our price compare to competitors?" Genie calls `identify_product_photo`, which reads the label as TH-EX-1156 and shows T about 25% above NorthBuild Supply. To try a new photo, upload it to `/Volumes/mdk_demo_catalog/t_hardware/landing/photo_uploads/` and ask about it by file name. In TAI, the Teams bot would upload the user's photo there and pass along the file name.
-5. **T Docs & SOPs Genie**: "What is the warranty period on commercial closers?" (10 years on body and hydraulics, 3 years on finish, per WP-01). Also try: "How do I install a surface door closer?" and "Who can approve a 35% discount off list?"
+   * **Photo question (in Genie One)**: upload a product photo (e.g. one from `photo_uploads/`, or a Schlage keypad lever photo) and ask "What's our equivalent of this product?". Genie One describes the photo and asks T Sales & Ops in text; the agent maps the description to a subcategory and finish and returns our top 3 SKUs with competitor prices. Example: a satin chrome / nickel keypad entry lever lock maps to TH-LK-1034 Cambie Electronic Keypad Lock - Satin Stainless at $508.73 vs $505.81 at NorthBuild Supply (0.6% above). We have no Satin Chrome keypad lock, so the agent says the finish is the closest match. Knobs map to Passage Lever Sets, and the agent says we sell levers, not knobs or handlesets.
+5. **T Docs & SOPs Genie** (Agent mode; this is the Knowledge Assistant replacement and reads the raw files in the `knowledge` volume):
+   * "What is the restocking fee for returns?": 20%, waived for T Industries shipping errors (CS-04, DOCX).
+   * "Who can approve a 35% discount off list?": a Regional Sales Manager, who can approve up to 38% (Pricing and Discount Authority Matrix, DOCX).
+   * "What's the warranty on commercial door closers, and how many warranty-claim tickets did we get on closers in the last 12 months?": 10 years on the body and 3 years on finish (WP-01, PDF), plus the ticket count from `gold_ticket_insights`. Documents and data come back in one answer with citations.
+   * "Summarize the DC-Series commercial door closer spec sheet" and "How many vacation days do employees in BC get after one year?" (both PDF).
+   * After new files are added to the volume, Genie needs a few minutes to index them.
 6. **Dashboard**: open *T Commercial Overview*, filter Region = BC, then click **Ask Genie** for follow-up questions.
 
 ## Planted stories
@@ -72,5 +77,6 @@ The job runs `land_sources` -> `governance` -> `t_genie_ready` (pipeline) -> `se
 | Demo | Production |
 | --- | --- |
 | `01_generate_synthetic_data` | Lakeflow Connect connectors for SharePoint and HubSpot, plus ERP ingestion (Lakeflow Connect or federation) |
-| `photo_uploads` volume + `identify_product_photo` | The TAI bot (Copilot Studio, or a Databricks App or agent) writes the user's photo to the volume and calls the function, or calls the Genie Conversation API |
+| Photo question via Genie One | TAI (Copilot Studio) describes the user's photo with its own vision model, or forwards it to Genie One, and asks T Sales & Ops through the Genie Conversation API |
+| `knowledge` volume synced from `landing/sharepoint` | The Lakeflow Connect SharePoint connector lands files directly in the volume the T Docs & SOPs agent reads; this replaces the Knowledge Assistant index |
 | Genie Agents | Exposed to Teams through the Genie Conversation API or the Copilot Studio Genie connector |
